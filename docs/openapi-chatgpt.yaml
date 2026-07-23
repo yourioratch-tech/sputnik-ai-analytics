@@ -1,0 +1,343 @@
+openapi: 3.1.0
+info:
+  title: Sputnik Market Evidence and Python Analytics
+  version: 0.3.0
+  description: >-
+    Retrieves price/news/private portfolio evidence, updates versioned control
+    settings, records auditable price corrections, and starts bounded Python
+    analytics. It has no ingestion, broker, credential, or order operations.
+servers:
+  - url: https://sputnik-market-edge.youri-oratch.workers.dev
+security:
+  - bearerAuth: []
+paths:
+  /v1/prices/latest:
+    get:
+      operationId: getLatestPrices
+      summary: Get the latest observed prices by symbol and timeframe
+      parameters:
+        - in: query
+          name: symbols
+          schema:
+            type: string
+          description: Comma-separated TradingView symbols such as ASX:OOO,TVC:DXY
+        - in: query
+          name: timeframe
+          schema:
+            type: string
+          description: Optional TradingView timeframe such as 1, 5, 60, or 1D
+      responses:
+        "200":
+          description: Latest webhook observations with freshness and provenance
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/prices/history:
+    get:
+      operationId: getObservedPriceHistory
+      summary: Get stored observed price points for one symbol
+      parameters:
+        - in: query
+          name: symbol
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: timeframe
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 500
+      responses:
+        "200":
+          description: Chronologically ordered observed price points
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/context/{symbol}:
+    get:
+      operationId: getMarketContext
+      summary: Get latest observations, events, freshness, and unknowns for a symbol
+      parameters:
+        - in: path
+          name: symbol
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: event_limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Read-only evidence context
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/news/latest:
+    get:
+      operationId: getLatestNews
+      summary: Get approved news webhook metadata and source links
+      parameters:
+        - in: query
+          name: symbols
+          schema: {type: string}
+        - in: query
+          name: limit
+          schema: {type: integer, minimum: 1, maximum: 500, default: 100}
+      responses:
+        "200":
+          description: Timestamped source-linked news evidence
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+  /v1/analytics/webhooks:
+    get:
+      operationId: getWebhookCoverage
+      summary: Get stored stream counts, coverage times, and latest arrivals
+      responses:
+        "200":
+          description: Actual stored webhook coverage and freshness evidence
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+  /v1/work/configuration:
+    get:
+      operationId: getSputnikConfiguration
+      summary: Get the latest versioned ASX session and scheduler settings
+      responses:
+        "200": {description: Latest configuration revision}
+    put:
+      operationId: updateSputnikConfiguration
+      summary: Save a new versioned ASX session and scheduler configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [asx_universe, reason, actor]
+              properties:
+                enabled: {type: boolean, default: true}
+                timezone: {type: string, default: Australia/Sydney}
+                session_start: {type: string, default: "10:00"}
+                session_end: {type: string, default: "16:15"}
+                scan_interval_minutes: {type: integer, minimum: 5, maximum: 240, default: 30}
+                max_daily_bar_age_hours: {type: integer, minimum: 1, maximum: 168, default: 72}
+                minimum_bars: {type: integer, minimum: 20, maximum: 5000, default: 60}
+                top_n: {type: integer, minimum: 1, maximum: 100, default: 10}
+                asx_universe:
+                  type: array
+                  maxItems: 500
+                  items: {type: string}
+                strategy_backtests: {type: array, maxItems: 50, items: {type: object}}
+                reason: {type: string, minLength: 3, maxLength: 500}
+                actor: {type: string, default: chatgpt_work}
+      responses:
+        "200": {description: New immutable configuration revision}
+  /v1/work/price-amendments:
+    get:
+      operationId: getPriceAmendments
+      summary: List auditable corrections without changing original observations
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, minimum: 1, maximum: 500, default: 100}
+      responses:
+        "200": {description: Correction history}
+    post:
+      operationId: recordPriceAmendment
+      summary: Record a sourced correction while preserving the raw observation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              required: [target_kind, symbol, timeframe, event_time, reason, actor]
+              properties:
+                target_kind: {type: string, enum: [bar, price]}
+                symbol: {type: string}
+                timeframe: {type: string}
+                event_time: {type: string, format: date-time}
+                price: {type: number}
+                open: {type: number}
+                high: {type: number}
+                low: {type: number}
+                close: {type: number}
+                volume: {type: number}
+                reason: {type: string}
+                actor: {type: string, default: chatgpt_work}
+                source_url: {type: string, format: uri}
+      responses:
+        "201": {description: Correction recorded; original preserved}
+  /v1/portfolio/summary:
+    get:
+      operationId: getPrivatePortfolioSummary
+      summary: Get privacy-filtered aggregate portfolio and FIFO behavior evidence
+      responses:
+        "200":
+          description: Aggregate private portfolio evidence without account identifiers
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+  /v1/work/forecasts:
+    post:
+      operationId: startPythonForecast
+      summary: Start a bounded empirical-distribution forecast in the Python worker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [symbol, timeframe]
+              properties:
+                symbol: {type: string}
+                timeframe: {type: string}
+                horizon_bars: {type: integer, minimum: 1, maximum: 20, default: 1}
+                lookback_bars: {type: integer, minimum: 60, maximum: 20000, default: 1000}
+                minimum_samples: {type: integer, minimum: 20, maximum: 10000, default: 60}
+                method: {type: string, enum: [empirical_distribution]}
+      responses:
+        "202": {description: Durable Python forecast job queued}
+  /v1/work/backtests:
+    post:
+      operationId: startPythonBacktest
+      summary: Start a configured next-open strategy backtest in the Python worker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [symbol, timeframe]
+              properties:
+                symbol: {type: string}
+                timeframe: {type: string}
+                config_name: {type: string, default: ooo_daily}
+                macro_symbols:
+                  type: object
+                  additionalProperties: {type: string}
+      responses:
+        "202": {description: Durable Python backtest job queued}
+  /v1/work/weekend-gaps:
+    post:
+      operationId: startWeekendGapStudy
+      summary: Start a cross-symbol Friday-close to next-session-open study
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [symbols]
+              properties:
+                symbols:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items: {type: string}
+                timeframe: {type: string, default: 1D}
+                factor_symbols:
+                  type: object
+                  additionalProperties: {type: string}
+                rules:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [field, operator, value]
+                    properties:
+                      field: {type: string}
+                      operator: {type: string, enum: [gt, ge, lt, le, eq]}
+                      value: {type: number}
+                cost_bps: {type: number, minimum: 0, maximum: 500, default: 10}
+                minimum_samples: {type: integer, minimum: 2, maximum: 10000, default: 20}
+      responses:
+        "202": {description: Durable Python weekend-gap job queued}
+  /v1/work/portfolio-reviews:
+    post:
+      operationId: startPrivatePortfolioReview
+      summary: Compare private trade timing with stored historical market bars
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                timeframe: {type: string, default: 1D}
+                horizons:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items: {type: integer, minimum: 1, maximum: 252}
+      responses:
+        "202": {description: Durable Python portfolio-review job queued}
+  /v1/work/asx-hunts:
+    post:
+      operationId: startAsxSessionHunt
+      summary: Rank fresh liquid ASX charts for range, VWAP, and retest inspection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [symbols]
+              properties:
+                symbols: {type: array, minItems: 1, maxItems: 500, items: {type: string}}
+                timeframe: {type: string, default: 1D}
+                minimum_bars: {type: integer, minimum: 20, maximum: 5000, default: 60}
+                top_n: {type: integer, minimum: 1, maximum: 100, default: 10}
+                max_age_hours: {type: integer, minimum: 1, maximum: 168, default: 72}
+      responses:
+        "202": {description: ASX scan job queued}
+  /v1/research/jobs/{job_id}:
+    get:
+      operationId: getResearchJob
+      summary: Retrieve a previously requested research job and its provenance
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Research job status or completed result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque

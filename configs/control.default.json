@@ -1,0 +1,42 @@
+{
+  "enabled": true,
+  "timezone": "Australia/Sydney",
+  "session_start": "10:00",
+  "session_end": "16:15",
+  "scan_interval_minutes": 30,
+  "max_daily_bar_age_hours": 72,
+  "minimum_bars": 60,
+  "top_n": 10,
+  "asx_universe": [
+    "ASX:EVN",
+    "ASX:BHP",
+    "ASX:NST",
+    "ASX:WDS",
+    "ASX:OOO",
+    "ASX:LTR",
+    "ASX:CDA",
+    "ASX:SRG",
+    "ASX:MIN",
+    "ASX:PLS",
+    "ASX:RIO",
+    "ASX:FMG",
+    "ASX:WHC",
+    "ASX:LYC",
+    "ASX:PDN",
+    "ASX:BOE",
+    "ASX:IGO"
+  ],
+  "strategy_backtests": [
+    {
+      "symbol": "ASX:OOO",
+      "timeframe": "1D",
+      "config_name": "ooo_daily",
+      "macro_symbols": {
+        "oil": "NYMEX:CL1!",
+        "dxy": "TVC:DXY"
+      }
+    }
+  ],
+  "reason": "liquid ASX resource and technology-driver panel",
+  "actor": "chatgpt_work"
+}

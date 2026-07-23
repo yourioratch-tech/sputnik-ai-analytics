@@ -1,0 +1,37 @@
+asx_session:
+  timeframe: "5"
+  condition: "SPUTNIK SMC+YASX v1.0 / Any alert() function call"
+  webhook: true
+  core_symbols:
+    - ASX:EVN
+    - ASX:BHP
+    - ASX:NST
+    - ASX:WDS
+    - ASX:OOO
+    - ASX:LTR
+    - ASX:CDA
+    - ASX:SRG
+    - ASX:MIN
+    - ASX:PLS
+    - ASX:RIO
+  next_liquid_symbols:
+    - ASX:FMG
+    - ASX:WHC
+    - ASX:LYC
+    - ASX:PDN
+    - ASX:BOE
+    - ASX:IGO
+
+macro_drivers:
+  timeframe: "60"
+  condition: "SPUTNIK SMC+YASX v1.0 / Any alert() function call"
+  symbols:
+    - NYMEX:CL1!
+    - COMEX:GC1!
+    - COMEX:SI1!
+    - COMEX:HG1!
+    - TVC:DXY
+
+excluded:
+  - requested: ASX:SXY
+    reason: "No current ASX symbol match in visible TradingView search on 2026-07-23."

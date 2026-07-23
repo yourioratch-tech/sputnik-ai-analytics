@@ -1,0 +1,1306 @@
+//@version=6
+indicator("SPUTNIK SMC + YASX ORB VWAP + Evasive ST", shorttitle="SPUTNIK SMC+YASX", overlay=true, behind_chart=false, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// Combined from:
+// 1. SPUTNIK SMC Price Action Visual Engine
+// 2. Yuri ASX ORB VWAP + Evasive SuperTrend
+// 3. Madrid Moving Average Ribbon colour logic
+//
+// Watch-only decision-support overlay. No broker execution logic is included.
+// Uses public formulas: pivots, BOS/CHoCH, HH/HL/LH/LL, equal highs/lows,
+// sweeps, FVGs, order-block proxy zones, ATR trail, EMA/VWAP context,
+// ASX/session ORB, squeeze, Evasive SuperTrend, and pivot geometry.
+
+// ------------------------- Locked chart defaults
+groupQuick = "00. Locked Chart Defaults"
+showMadridRibbon = input.bool(true, "Show Madrid ribbon", tooltip="Default ON to match the locked Sputnik chart view.", group=groupQuick, display=display.none)
+madridUseExponential = input.bool(true, "Madrid uses EMA", tooltip="ON matches the original Madrid Ribbon default. Turn off for SMA ribbon.", group=groupQuick, display=display.none)
+showOrbVwapPack = input.bool(true, "Show ORB + VWAP pack", tooltip="Fast visual toggle for session shade, opening-range box/lines/labels, and VWAP plot.", group=groupQuick, display=display.none)
+
+// ------------------------- MA ribbon quick colours
+groupRibbon = "00A. MA Ribbon Quick Colours"
+ribbonUseCustomColours = input.bool(false, "Use custom ribbon colours", tooltip="OFF locks the ribbon to the exact candle colours. Turn ON to use the three ribbon colour inputs.", group=groupRibbon, display=display.none)
+ribbonBullColorInput = input.color(color.rgb(20, 142, 255), "Ribbon bullish colour", group=groupRibbon, display=display.none)
+ribbonBearColorInput = input.color(color.rgb(211, 22, 74), "Ribbon bearish colour", group=groupRibbon, display=display.none)
+ribbonNeutralColorInput = input.color(color.rgb(207, 212, 222), "Ribbon neutral/doji colour", group=groupRibbon, display=display.none)
+
+// ------------------------- Smart Money / Structure inputs
+groupStructure = "01. Smart Money / Structure"
+showStructure = input.bool(true, "Show HH/HL/LH/LL", group=groupStructure, display=display.none)
+showBosChoch = input.bool(true, "Show BOS / CHoCH", group=groupStructure, display=display.none)
+showLiquidity = input.bool(true, "Show liquidity grabs / equal highs-lows", group=groupStructure, display=display.none)
+showFvg = input.bool(true, "Show fair value gaps", group=groupStructure, display=display.none)
+showOrderBlocks = input.bool(true, "Show order-block proxy zones", group=groupStructure, display=display.none)
+showLiveRangeZones = input.bool(true, "Show premium / discount range zones", group=groupStructure, display=display.none)
+showRangeGuideLines = input.bool(false, "Show range guide lines", group=groupStructure, display=display.none)
+showStructureEventLines = input.bool(false, "Show BOS/liquidity horizontal guide lines", group=groupStructure, display=display.none)
+showZoneText = input.bool(false, "Show order-block text labels", group=groupStructure, display=display.none)
+showFvgText = input.bool(false, "Show FVG text inside boxes", group=groupStructure, display=display.none)
+showRangeZoneLabels = input.bool(true, "Label premium / equilibrium / discount range", group=groupStructure, display=display.none)
+showEquilibriumLabel = input.bool(true, "Label equilibrium zone", group=groupStructure, display=display.none)
+priceActionTextOnly = input.bool(true, "Price-action labels as coloured text", group=groupStructure, display=display.none)
+pivotLen = input.int(5, "Structure pivot length", minval=2, maxval=30, group=groupStructure, display=display.none)
+equalAtrTol = input.float(0.18, "Equal high/low tolerance ATR", minval=0.01, step=0.01, group=groupStructure, display=display.none)
+sweepLookback = input.int(12, "Liquidity sweep lookback", minval=3, maxval=100, group=groupStructure, display=display.none)
+zoneExtend = input.int(34, "Zone extension bars", minval=8, maxval=160, group=groupStructure, display=display.none)
+maxZones = input.int(6, "Max visible zones", minval=2, maxval=30, group=groupStructure, display=display.none)
+zoneFillTransparency = input.int(82, "Structure zone transparency", minval=55, maxval=100, group=groupStructure, display=display.none)
+fvgFillTransparency = input.int(84, "FVG zone transparency", minval=55, maxval=100, group=groupStructure, display=display.none)
+rangeFillTransparency = input.int(86, "Premium/discount transparency", minval=65, maxval=100, group=groupStructure, display=display.none)
+zoneBorderTransparency = input.int(55, "Zone border transparency", minval=0, maxval=100, group=groupStructure, display=display.none)
+structureLineWidth = input.int(2, "BOS / liquidity line width", minval=1, maxval=8, group=groupStructure, display=display.none)
+rangeLineWidth = input.int(3, "Support / resistance line width", minval=1, maxval=10, group=groupStructure, display=display.none)
+rangeZoneWidth = input.int(42, "Visible range-zone width", minval=12, maxval=140, group=groupStructure, display=display.none)
+rangeZoneForward = input.int(10, "Range-zone forward bars", minval=0, maxval=80, group=groupStructure, display=display.none)
+rangeZoneGapAtr = input.float(0.08, "Range-zone separation ATR", minval=0.0, maxval=0.5, step=0.01, group=groupStructure, display=display.none)
+
+// ------------------------- Trend / VWAP / signal inputs
+groupTrend = "02. Trend / VWAP / Signals"
+showEmaRibbon = input.bool(false, "Show legacy EMA 20/50/100/200", group=groupTrend, display=display.none)
+showSmartTrail = input.bool(true, "Show smart trail", group=groupTrend, display=display.none)
+showTrendCloud = input.bool(false, "Show trend cloud", group=groupTrend, display=display.none)
+showSignalLabels = input.bool(true, "Show buy/sell/risk icons", group=groupTrend, display=display.none)
+showVWAP = input.bool(true, "Show VWAP", group=groupTrend, display=display.none)
+vwapSrc = input.source(hlc3, "VWAP source", group=groupTrend, display=display.none)
+vwapLineWidth = input.int(2, "VWAP line width", minval=1, maxval=5, group=groupTrend, display=display.none)
+autoTuneSensitivity = input.bool(true, "Auto-adjust sensitivity from trend/range", group=groupTrend, display=display.none)
+manualSensitivity = input.int(12, "Manual sensitivity when auto is off", minval=5, maxval=24, group=groupTrend, display=display.none)
+emaFastLen = input.int(20, "Fast EMA", minval=1, group=groupTrend, display=display.none)
+emaMidLen = input.int(50, "Mid EMA", minval=1, group=groupTrend, display=display.none)
+emaSlowLen = input.int(100, "Slow EMA", minval=1, group=groupTrend, display=display.none)
+emaRegimeLen = input.int(200, "Regime EMA", minval=1, group=groupTrend, display=display.none)
+atrLen = input.int(14, "ATR length", minval=1, group=groupTrend, display=display.none)
+trailMult = input.float(2.4, "Smart trail ATR multiplier", minval=0.2, step=0.1, group=groupTrend, display=display.none)
+trendNeed = input.float(45.0, "Trend strength threshold", minval=1, maxval=100, group=groupTrend, display=display.none)
+signalStrictness = input.string("Balanced", "Signal strictness", options=["Fast", "Balanced", "Strict"], group=groupTrend, display=display.none)
+requireTrendGateForSignals = input.bool(false, "Require strict trend gate for buy/sell icons", group=groupTrend, display=display.none)
+
+// ------------------------- ASX/session ORB inputs
+groupOrbCore = "03. ORB / Session"
+enableOrbModule = input.bool(true, "Enable ORB/session module", group=groupOrbCore, display=display.none)
+sessionTimezone = input.string("Australia/Sydney", "Session timezone", group=groupOrbCore, display=display.none)
+sessionDays = input.string("23456", "Session days mask", tooltip="TradingView day mask. 23456 = Monday-Friday.", group=groupOrbCore, display=display.none)
+tradeSession = input.session("1000-1600", "Trading session", group=groupOrbCore, display=display.none)
+orbSession = input.session("1000-1030", "Opening range window", group=groupOrbCore, display=display.none)
+showSessionShade = input.bool(false, "Shade trading session", group=groupOrbCore, display=display.none)
+showORBBox = input.bool(true, "Draw opening range box", group=groupOrbCore, display=display.none)
+showORLines = input.bool(true, "Show OR high / low / mid", group=groupOrbCore, display=display.none)
+showORLabels = input.bool(true, "Show OR labels", group=groupOrbCore, display=display.none)
+showORLabelPrices = input.bool(true, "Include OR prices in labels", group=groupOrbCore, display=display.none)
+extendORLinesInSessionOnly = input.bool(true, "Hide OR lines outside session", group=groupOrbCore, display=display.none)
+showVWAPVisual = showOrbVwapPack and showVWAP
+showSessionShadeVisual = false
+showORBBoxVisual = showOrbVwapPack and showORBBox
+showORLinesVisual = showOrbVwapPack and showORLines
+showORLabelsVisual = showOrbVwapPack and showORLabels
+
+groupOrbStyle = "04. ORB / Session Style"
+sessionShadeCol = input.color(color.new(color.aqua, 96), "Session shade", group=groupOrbStyle, display=display.none)
+orbBoxCol = input.color(color.new(color.white, 92), "Opening range box fill", group=groupOrbStyle, display=display.none)
+orbBorderCol = input.color(color.new(color.white, 18), "Opening range box border", group=groupOrbStyle, display=display.none)
+orHighCol = input.color(color.white, "OR high colour", group=groupOrbStyle, display=display.none)
+orLowCol = input.color(color.white, "OR low colour", group=groupOrbStyle, display=display.none)
+orMidCol = input.color(color.white, "OR mid colour", group=groupOrbStyle, display=display.none)
+orLineWidth = input.int(3, "OR high/low line width", minval=1, maxval=5, group=groupOrbStyle, display=display.none)
+orMidLineWidth = input.int(1, "OR mid line width", minval=1, maxval=5, group=groupOrbStyle, display=display.none)
+orLabelSizeInput = input.string("Tiny", "OR label size", options=["Tiny", "Small", "Normal"], group=groupOrbStyle, display=display.none)
+
+// ------------------------- Evasive SuperTrend inputs
+groupEvasiveST = "05. Evasive SuperTrend"
+useEvasiveSTForAlerts = input.bool(true, "Use Evasive SuperTrend state in alerts", group=groupEvasiveST, display=display.none)
+showEvasiveST = input.bool(false, "Show Evasive SuperTrend on chart", group=groupEvasiveST, display=display.none)
+showEvasiveSTLabels = input.bool(true, "Show SuperTrend flip labels", group=groupEvasiveST, display=display.none)
+showEvasiveSTFills = input.bool(true, "Show SuperTrend gradient fills", group=groupEvasiveST, display=display.none)
+eStLengthInput = input.int(10, "ATR length", minval=1, group=groupEvasiveST, display=display.none)
+eStMultiplierInput = input.float(3.0, "Base multiplier", minval=0.1, step=0.1, group=groupEvasiveST, display=display.none)
+eStThresholdInput = input.float(1.0, "Noise threshold xATR", minval=0.1, step=0.1, group=groupEvasiveST, display=display.none)
+eStAlphaInput = input.float(0.5, "Expansion alpha xATR", minval=0.0, step=0.1, group=groupEvasiveST, display=display.none)
+eStBullLineCol = input.color(#089981, "Bull trend line colour", group=groupEvasiveST, display=display.none)
+eStBearLineCol = input.color(#f23645, "Bear trend line colour", group=groupEvasiveST, display=display.none)
+eStBullFillNearCol = input.color(color.new(#089981, 50), "Bull fill near price", group=groupEvasiveST, display=display.none)
+eStBullFillFarCol = input.color(color.new(#089981, 100), "Bull fill far price", group=groupEvasiveST, display=display.none)
+eStBearFillNearCol = input.color(color.new(#f23645, 50), "Bear fill near price", group=groupEvasiveST, display=display.none)
+eStBearFillFarCol = input.color(color.new(#f23645, 100), "Bear fill far price", group=groupEvasiveST, display=display.none)
+
+// ------------------------- Pattern / squeeze inputs
+groupPatterns = "06. Pattern / Squeeze"
+showPattern = input.bool(true, "Draw suspected pattern", group=groupPatterns, display=display.none)
+showSwingRails = input.bool(false, "Draw extra swing rails", group=groupPatterns, display=display.none)
+showLineShadows = input.bool(false, "Add shaded rail thickness", group=groupPatterns, display=display.none)
+showPatternFill = input.bool(false, "Soft fill between pattern rails", group=groupPatterns, display=display.none)
+patternUseDirectionalColours = input.bool(false, "Use bullish/bearish pattern colours", group=groupPatterns, display=display.none)
+showSqueezePane = input.bool(true, "Calculate squeeze / momentum strip", group=groupPatterns, display=display.none)
+patternLookback = input.int(90, "Pattern lookback", minval=30, maxval=300, group=groupPatterns, display=display.none)
+patternAtrTol = input.float(0.65, "Pattern tolerance ATR", minval=0.1, step=0.05, group=groupPatterns, display=display.none)
+patternLineWidth = input.int(5, "Pattern / trendline width", minval=1, maxval=10, group=groupPatterns, display=display.none)
+patternLineTransparency = input.int(24, "Pattern rail transparency", minval=0, maxval=100, group=groupPatterns, display=display.none)
+lineShadowTransparency = input.int(64, "Trendline shade transparency", minval=40, maxval=95, group=groupPatterns, display=display.none)
+patternFillTransparency = input.int(94, "Pattern fill transparency", minval=70, maxval=100, group=groupPatterns, display=display.none)
+patternProjectionBars = input.int(0, "Pattern projection bars", minval=0, maxval=60, group=groupPatterns, display=display.none)
+bbLen = input.int(20, "Squeeze BB length", minval=1, group=groupPatterns, display=display.none)
+bbMult = input.float(2.0, "Squeeze BB multiplier", minval=0.1, step=0.1, group=groupPatterns, display=display.none)
+kcLen = input.int(20, "Squeeze KC length", minval=1, group=groupPatterns, display=display.none)
+kcMult = input.float(1.5, "Squeeze KC multiplier", minval=0.1, step=0.1, group=groupPatterns, display=display.none)
+
+// ------------------------- Dashboards / alerts inputs
+groupDash = "07. Dashboards / Alerts"
+showDashboard = input.bool(false, "Show lower-left dashboard", group=groupDash, display=display.none)
+showPatternPanel = input.bool(true, "Show detected-pattern panel", group=groupDash, display=display.none)
+compactPatternPanel = input.bool(true, "Compact detected-pattern panel", group=groupDash, display=display.none)
+sendDynamicAlerts = input.bool(true, "Use alert() messages for Any alert() function call", group=groupDash, display=display.none)
+payloadSecret = input.string("REPLACE_ME", "Sputnik webhook payload secret", group=groupDash, display=display.none)
+confirmOnClose = input.bool(true, "Confirm signals on candle close", group=groupDash, display=display.none)
+alertOnSmcSignals = input.bool(true, "Alert on SMC buy/sell/risk states", group=groupDash, display=display.none)
+alertOnStructureEvents = input.bool(true, "Alert on BOS / CHoCH", group=groupDash, display=display.none)
+alertOnLiquidityEvents = input.bool(true, "Alert on liquidity events", group=groupDash, display=display.none)
+alertOnVWAPEvents = input.bool(true, "Alert on VWAP reclaim/loss", group=groupDash, display=display.none)
+alertOnTrailEvents = input.bool(true, "Alert on smart trail flips", group=groupDash, display=display.none)
+alertOnEvasiveSTEvents = input.bool(true, "Alert on Evasive ST flips", group=groupDash, display=display.none)
+alertOnOrbEvents = input.bool(true, "Alert on ORB breaks", group=groupDash, display=display.none)
+alertOnPatternEvents = input.bool(true, "Alert on pattern/squeeze changes", group=groupDash, display=display.none)
+
+// ------------------------- Mini dashboard inputs
+groupMiniDash = "08. Mini Chart Dash"
+showMiniDash = input.bool(true, "Show compact dash", group=groupMiniDash, display=display.none)
+showMiniPatternRow = input.bool(false, "Show pattern row under mini dash", group=groupMiniDash, display=display.none)
+miniDashPositionInput = input.string("Bottom Right", "Dash anchor", options=["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group=groupMiniDash, display=display.none)
+miniDashTopOffsetRows = input.int(0, "Top padding rows", minval=0, maxval=6, group=groupMiniDash, display=display.none)
+miniDashMoveDownRows = input.int(0, "Move dash down rows", minval=0, maxval=8, group=groupMiniDash, display=display.none)
+miniDashMoveUpRows = input.int(0, "Move dash up rows", minval=0, maxval=8, group=groupMiniDash, display=display.none)
+showMiniDashHeader = input.bool(true, "Show header row", group=groupMiniDash, display=display.none)
+miniDashTextSizeLegacyInput = input.string("Tiny", "Legacy dash text size", options=["Tiny", "Small", "Normal", "Large"], group=groupMiniDash, display=display.none)
+miniDashTextSizeInput = input.string("Tiny", "Top dash text size", options=["Tiny", "Small", "Normal", "Large"], group=groupMiniDash, display=display.none)
+miniPatternTextSizeInput = input.string("Small", "Detected-pattern text size", options=["Tiny", "Small", "Normal", "Large"], group=groupMiniDash, display=display.none)
+miniDashHeaderBgInput = input.color(color.rgb(31, 38, 52), "Header background", group=groupMiniDash, display=display.none)
+miniDashBodyBgInput = input.color(color.rgb(12, 17, 29), "Body background", group=groupMiniDash, display=display.none)
+miniDashAltBgInput = input.color(color.rgb(17, 24, 39), "Alternate body background", group=groupMiniDash, display=display.none)
+miniDashBorderInput = input.color(color.rgb(31, 38, 52), "Border colour", group=groupMiniDash, display=display.none)
+miniDashTextInput = input.color(color.rgb(216, 222, 233), "Neutral text colour", group=groupMiniDash, display=display.none)
+miniDashWarnInput = input.color(color.orange, "Wait/warning text colour", group=groupMiniDash, display=display.none)
+miniDashBullInput = input.color(color.rgb(0, 255, 88), "Bullish dash colour", group=groupMiniDash, display=display.none)
+miniDashBgTransparency = input.int(8, "Body transparency", minval=0, maxval=100, group=groupMiniDash, display=display.none)
+miniDashHeaderTransparency = input.int(2, "Header transparency", minval=0, maxval=100, group=groupMiniDash, display=display.none)
+miniDashShowTicker = input.bool(true, "Column: ticker", group=groupMiniDash, display=display.none)
+miniDashShowPrice = input.bool(true, "Column: price", group=groupMiniDash, display=display.none)
+miniDashShowChange = input.bool(true, "Column: percent change", group=groupMiniDash, display=display.none)
+miniDashShowMa1 = input.bool(true, "Column: MA 1m", group=groupMiniDash, display=display.none)
+miniDashShowMa5 = input.bool(true, "Column: MA 5m", group=groupMiniDash, display=display.none)
+miniDashShowMa15 = input.bool(true, "Column: MA 15m", group=groupMiniDash, display=display.none)
+miniDashShowVwap = input.bool(true, "Column: VWAP", group=groupMiniDash, display=display.none)
+miniDashShowTrail = input.bool(true, "Column: trail", group=groupMiniDash, display=display.none)
+miniDashShowVolume = input.bool(true, "Column: volume", group=groupMiniDash, display=display.none)
+miniDashShowStructure = input.bool(true, "Column: structure", group=groupMiniDash, display=display.none)
+miniDashShowPattern = input.bool(true, "Column: pattern", group=groupMiniDash, display=display.none)
+miniDashShowBos = input.bool(true, "Column: BOS", group=groupMiniDash, display=display.none)
+miniDashShowChoch = input.bool(true, "Column: CHOCH", group=groupMiniDash, display=display.none)
+miniDashShowRsi = input.bool(true, "Column: RSI", group=groupMiniDash, display=display.none)
+miniDashShowAdx = input.bool(true, "Column: ADX", group=groupMiniDash, display=display.none)
+miniDashShowMacd = input.bool(true, "Column: MACD", group=groupMiniDash, display=display.none)
+
+// ------------------------- Style / label inputs
+groupStyle = "09. Style / Icons"
+visualPresetInput = input.string("Snapshot Default", "Visual preset", options=["Snapshot Default", "Custom"], group=groupStyle, display=display.none)
+barColorMode = input.string("SMC bull/bear", "Bar colour mode", options=["Off", "SMC bull/bear", "Green/red candles"], group=groupStyle, display=display.none)
+hhText = input.string("HH", "Higher-high label", group=groupStyle, display=display.none)
+hlText = input.string("HL", "Higher-low label", group=groupStyle, display=display.none)
+lhText = input.string("LH", "Lower-high label", group=groupStyle, display=display.none)
+llText = input.string("LL", "Lower-low label", group=groupStyle, display=display.none)
+bosBullText = input.string("BOS+", "Bullish BOS label", group=groupStyle, display=display.none)
+bosBearText = input.string("BOS-", "Bearish BOS label", group=groupStyle, display=display.none)
+chochBullText = input.string("CHoCH+", "Bullish CHoCH label", group=groupStyle, display=display.none)
+chochBearText = input.string("CHoCH-", "Bearish CHoCH label", group=groupStyle, display=display.none)
+liquidityText = input.string("Liquidity\nGrab", "Liquidity grab label", group=groupStyle, display=display.none)
+equalHighText = input.string("Equal High\nLiquidity", "Equal-high label", group=groupStyle, display=display.none)
+equalLowText = input.string("Equal Low\nLiquidity", "Equal-low label", group=groupStyle, display=display.none)
+fvgBullText = input.string("Bull FVG", "Bull FVG text", group=groupStyle, display=display.none)
+fvgBearText = input.string("Bear FVG", "Bear FVG text", group=groupStyle, display=display.none)
+premiumText = input.string("Premium", "Premium zone text", group=groupStyle, display=display.none)
+equilibriumText = input.string("Equilibrium", "Equilibrium zone text", group=groupStyle, display=display.none)
+discountText = input.string("Discount", "Discount zone text", group=groupStyle, display=display.none)
+buySignalColorInput = input.color(color.rgb(20, 142, 255), "Buy icon colour", group=groupStyle, display=display.none)
+sellSignalColorInput = input.color(color.rgb(211, 22, 74), "Sell icon colour", group=groupStyle, display=display.none)
+riskSignalColorInput = input.color(color.rgb(182, 188, 198), "Risk icon colour", group=groupStyle, display=display.none)
+priceActionBullTextColor = input.color(color.rgb(20, 142, 255), "Bull price-action text colour", group=groupStyle, display=display.none)
+priceActionBearTextColor = input.color(color.rgb(211, 22, 74), "Bear price-action text colour", group=groupStyle, display=display.none)
+priceActionNeutralTextColor = input.color(color.rgb(207, 212, 222), "Neutral/risk price-action text colour", group=groupStyle, display=display.none)
+premiumZoneColorInput = input.color(color.rgb(188, 56, 98), "Premium / supply zone colour", group=groupStyle, display=display.none)
+discountZoneColorInput = input.color(color.rgb(48, 116, 205), "Discount / demand zone colour", group=groupStyle, display=display.none)
+equilibriumZoneColorInput = input.color(color.rgb(158, 164, 174), "Equilibrium zone colour", group=groupStyle, display=display.none)
+patternShadeColorInput = input.color(color.white, "Pattern rail colour", group=groupStyle, display=display.none)
+vwapColorInput = input.color(color.white, "VWAP colour", group=groupStyle, display=display.none)
+greenCandleCol = input.color(color.lime, "Green candle colour", group=groupStyle, display=display.none)
+redCandleCol = input.color(color.red, "Red candle colour", group=groupStyle, display=display.none)
+
+// ------------------------- Colors
+useSnapshotPreset = visualPresetInput == "Snapshot Default"
+buyColor = useSnapshotPreset ? color.rgb(20, 142, 255) : buySignalColorInput
+sellColor = useSnapshotPreset ? color.rgb(211, 22, 74) : sellSignalColorInput
+premiumColor = useSnapshotPreset ? color.rgb(188, 56, 98) : premiumZoneColorInput
+discountColor = useSnapshotPreset ? color.rgb(48, 116, 205) : discountZoneColorInput
+equilibriumColor = useSnapshotPreset ? color.rgb(158, 164, 174) : equilibriumZoneColorInput
+dashBlue = color.rgb(38, 43, 54)
+dashBlueDark = color.rgb(23, 27, 36)
+patternGray = useSnapshotPreset ? color.white : patternShadeColorInput
+effectiveVwapColor = useSnapshotPreset ? color.white : vwapColorInput
+effectiveSessionShadeCol = useSnapshotPreset ? color.new(color.aqua, 96) : sessionShadeCol
+effectiveOrbBoxCol = useSnapshotPreset ? color.new(color.white, 92) : orbBoxCol
+effectiveOrbBorderCol = useSnapshotPreset ? color.new(color.white, 18) : orbBorderCol
+effectiveOrHighCol = useSnapshotPreset ? color.white : orHighCol
+effectiveOrLowCol = useSnapshotPreset ? color.white : orLowCol
+effectiveOrMidCol = useSnapshotPreset ? color.white : orMidCol
+
+// ------------------------- Helpers
+f_txt(float x) =>
+    na(x) ? "n/a" : str.tostring(x, format.mintick)
+
+f_pct(float x) =>
+    na(x) ? "n/a" : str.tostring(x, "#.##") + "%"
+
+f_clamp(float x, float lo, float hi) =>
+    math.max(lo, math.min(hi, x))
+
+f_project_y(int x1, float y1, int x2, float y2, int x) =>
+    x2 == x1 ? y2 : y1 + (y2 - y1) * (float(x - x1) / float(x2 - x1))
+
+f_label_size(string opt) =>
+    opt == "Large" ? size.large : opt == "Normal" ? size.normal : opt == "Small" ? size.small : size.tiny
+
+f_label_size_plus_two(string opt) =>
+    opt == "Large" ? size.huge : opt == "Normal" ? size.huge : opt == "Small" ? size.large : size.normal
+
+f_table_position(string opt) =>
+    opt == "Top Left" ? position.top_left :
+     opt == "Top Center" ? position.top_center :
+     opt == "Top Right" ? position.top_right :
+     opt == "Middle Left" ? position.middle_left :
+     opt == "Middle Center" ? position.middle_center :
+     opt == "Middle Right" ? position.middle_right :
+     opt == "Bottom Left" ? position.bottom_left :
+     opt == "Bottom Center" ? position.bottom_center :
+     position.bottom_right
+
+f_table_is_top(string opt) =>
+    opt == "Top Left" or opt == "Top Center" or opt == "Top Right"
+
+f_table_is_bottom(string opt) =>
+    opt == "Bottom Left" or opt == "Bottom Center" or opt == "Bottom Right"
+
+f_join_field(string base, bool show, string value) =>
+    show ? base + (base == "" ? "" : " | ") + value : base
+
+f_tf_label() =>
+    int mult = timeframe.multiplier
+    string label = timeframe.period
+    if timeframe.isseconds
+        label := str.tostring(mult) + "s"
+    else if timeframe.isminutes
+        label := mult % 60 == 0 ? str.tostring(int(mult / 60)) + "h" : str.tostring(mult) + "m"
+    else if timeframe.isdaily
+        label := mult == 1 ? "1D" : str.tostring(mult) + "D"
+    else if timeframe.isweekly
+        label := mult == 1 ? "1W" : str.tostring(mult) + "W"
+    else if timeframe.ismonthly
+        label := mult == 1 ? "1M" : str.tostring(mult) + "M"
+    label
+
+// Madrid Ribbon colour logic adapted from Madrid Moving Average Ribbon, MPL 2.0.
+f_madrid_color(float maValue, float maRef) =>
+    float diffMa = ta.change(maValue)
+    diffMa >= 0 and maValue > maRef ? color.rgb(0, 255, 0) :
+     diffMa < 0 and maValue > maRef ? color.rgb(128, 0, 0) :
+     diffMa <= 0 and maValue < maRef ? color.rgb(255, 0, 0) :
+     diffMa >= 0 and maValue < maRef ? color.rgb(0, 128, 0) :
+     color.rgb(128, 128, 128)
+
+f_pattern_name(int code) =>
+    string name = "None"
+    if code == 9
+        name := "Descending Broadening Wedge"
+    else if code == 8
+        name := "Ascending Broadening Wedge"
+    else if code == 7
+        name := "Descending Triangle"
+    else if code == 6
+        name := "Ascending Triangle"
+    else if code == 5
+        name := "Symmetrical Triangle"
+    else if code == 4
+        name := "Range / Rectangle"
+    else if code == 3
+        name := "Double Top"
+    else if code == 2
+        name := "Double Bottom"
+    else if code == 1
+        name := "Squeeze Coil"
+    name
+
+f_state_name(int s) =>
+    s == 2 ? "GO WATCH" : s == 1 ? "WAIT" : s == -1 ? "REDUCE RISK" : s == -2 ? "NO TRADE" : "WAIT"
+
+f_bias_name(int s) =>
+    s == 1 ? "Bullish" : s == -1 ? "Bearish" : "Neutral"
+
+f_gate(bool ok) =>
+    ok ? "TRUE" : "FALSE"
+
+f_zone_text(string txt) =>
+    showZoneText ? txt : ""
+
+f_fvg_text(string txt) =>
+    showFvgText ? txt : ""
+
+f_structure_text(string tag) =>
+    tag == "HH" ? hhText : tag == "HL" ? hlText : tag == "LH" ? lhText : tag == "LL" ? llText : tag
+
+f_mini_ma_state() =>
+    ma20 = ta.ema(close, 20)
+    ma50 = ta.ema(close, 50)
+    ma100 = ta.ema(close, 100)
+    ma200 = ta.ema(close, 200)
+    bullStack = close > ma20 and ma20 > ma50 and ma50 > ma100 and ma100 > ma200
+    bearStack = close < ma20 and ma20 < ma50 and ma50 < ma100 and ma100 < ma200
+    bullStack ? 1 : bearStack ? -1 : 0
+
+f_mini_ma_txt(int maState) =>
+    maState == 1 ? "Bullish" : maState == -1 ? "Bearish" : "Neutral"
+
+f_mini_ma_col(int maState, color bullCol, color bearCol, color neutralCol) =>
+    maState == 1 ? bullCol : maState == -1 ? bearCol : neutralCol
+
+// ------------------------- Core trend
+emaFast = ta.ema(close, emaFastLen)
+emaMid = ta.ema(close, emaMidLen)
+emaSlow = ta.ema(close, emaSlowLen)
+emaRegime = ta.ema(close, emaRegimeLen)
+madridSrc = close
+madridMa05 = madridUseExponential ? ta.ema(madridSrc, 5) : ta.sma(madridSrc, 5)
+madridMa10 = madridUseExponential ? ta.ema(madridSrc, 10) : ta.sma(madridSrc, 10)
+madridMa15 = madridUseExponential ? ta.ema(madridSrc, 15) : ta.sma(madridSrc, 15)
+madridMa20 = madridUseExponential ? ta.ema(madridSrc, 20) : ta.sma(madridSrc, 20)
+madridMa25 = madridUseExponential ? ta.ema(madridSrc, 25) : ta.sma(madridSrc, 25)
+madridMa30 = madridUseExponential ? ta.ema(madridSrc, 30) : ta.sma(madridSrc, 30)
+madridMa35 = madridUseExponential ? ta.ema(madridSrc, 35) : ta.sma(madridSrc, 35)
+madridMa40 = madridUseExponential ? ta.ema(madridSrc, 40) : ta.sma(madridSrc, 40)
+madridMa45 = madridUseExponential ? ta.ema(madridSrc, 45) : ta.sma(madridSrc, 45)
+madridMa50 = madridUseExponential ? ta.ema(madridSrc, 50) : ta.sma(madridSrc, 50)
+madridMa55 = madridUseExponential ? ta.ema(madridSrc, 55) : ta.sma(madridSrc, 55)
+madridMa60 = madridUseExponential ? ta.ema(madridSrc, 60) : ta.sma(madridSrc, 60)
+madridMa65 = madridUseExponential ? ta.ema(madridSrc, 65) : ta.sma(madridSrc, 65)
+madridMa70 = madridUseExponential ? ta.ema(madridSrc, 70) : ta.sma(madridSrc, 70)
+madridMa75 = madridUseExponential ? ta.ema(madridSrc, 75) : ta.sma(madridSrc, 75)
+madridMa80 = madridUseExponential ? ta.ema(madridSrc, 80) : ta.sma(madridSrc, 80)
+madridMa85 = madridUseExponential ? ta.ema(madridSrc, 85) : ta.sma(madridSrc, 85)
+madridMa90 = madridUseExponential ? ta.ema(madridSrc, 90) : ta.sma(madridSrc, 90)
+madridMa100 = madridUseExponential ? ta.ema(madridSrc, 100) : ta.sma(madridSrc, 100)
+vwapValue = ta.vwap(vwapSrc)
+atr = ta.atr(atrLen)
+rsiValue = ta.rsi(close, 14)
+mfiValue = ta.mfi(hlc3, 14)
+[plusDi, minusDi, adxValue] = ta.dmi(14, 14)
+volBase = ta.sma(volume, 20)
+relVol = volBase > 0 ? volume / volBase : na
+
+trendScore = 0
+trendScore += close > emaFast ? 1 : -1
+trendScore += emaFast > emaMid ? 1 : -1
+trendScore += emaMid > emaSlow ? 1 : -1
+trendScore += emaSlow > emaRegime ? 1 : -1
+trendScore += close > vwapValue ? 1 : -1
+trendStrength = f_clamp(adxValue * 1.35 + math.abs(close - emaMid) / math.max(atr, syminfo.mintick) * 8.0, 0.0, 100.0)
+volatilityPctBase = atr / math.max(close, syminfo.mintick) * 100.0
+autoSensitivityRaw = 10.0 + trendStrength / 14.0 - volatilityPctBase * 1.25 + (math.abs(trendScore) >= 4 ? 1.5 : 0.0) - (adxValue < 18 ? 1.5 : 0.0)
+optimalSensitivity = int(math.round(f_clamp(autoSensitivityRaw, 5.0, 24.0)))
+effectiveSensitivity = autoTuneSensitivity ? optimalSensitivity : manualSensitivity
+sensitivityBand = effectiveSensitivity <= 10 ? 0 : effectiveSensitivity >= 16 ? 2 : 1
+selectedPivotLen = autoTuneSensitivity ? (sensitivityBand == 0 ? 3 : sensitivityBand == 2 ? 8 : pivotLen) : pivotLen
+effectiveTrendNeed = autoTuneSensitivity ? f_clamp(34.0 + effectiveSensitivity * 1.65, 38.0, 72.0) : trendNeed
+effectiveTrailMult = autoTuneSensitivity ? f_clamp(1.45 + effectiveSensitivity / 8.0, 2.0, 3.8) : trailMult
+effectiveEqualAtrTol = autoTuneSensitivity ? f_clamp(0.28 - effectiveSensitivity / 115.0, 0.08, 0.24) : equalAtrTol
+effectivePatternAtrTol = autoTuneSensitivity ? f_clamp(0.86 - effectiveSensitivity / 55.0, 0.38, 0.72) : patternAtrTol
+rawTrendDir = trendScore >= 2 and trendStrength >= effectiveTrendNeed ? 1 : trendScore <= -2 and trendStrength >= effectiveTrendNeed ? -1 : 0
+
+upperBasic = hl2 + atr * effectiveTrailMult
+lowerBasic = hl2 - atr * effectiveTrailMult
+var float upperBand = na
+var float lowerBand = na
+upperBand := na(upperBand[1]) ? upperBasic : (upperBasic < upperBand[1] or close[1] > upperBand[1] ? upperBasic : upperBand[1])
+lowerBand := na(lowerBand[1]) ? lowerBasic : (lowerBasic > lowerBand[1] or close[1] < lowerBand[1] ? lowerBasic : lowerBand[1])
+var int trailDir = 1
+priorTrailDir = nz(trailDir[1], 1)
+trailDir := priorTrailDir == -1 and close > upperBand[1] ? 1 : priorTrailDir == 1 and close < lowerBand[1] ? -1 : priorTrailDir
+smartTrail = trailDir == 1 ? lowerBand : upperBand
+trailFlipUp = trailDir == 1 and priorTrailDir == -1
+trailFlipDown = trailDir == -1 and priorTrailDir == 1
+trailLost = ta.crossunder(close, smartTrail)
+trailReclaimed = ta.crossover(close, smartTrail)
+
+// ------------------------- Evasive SuperTrend confirmation engine
+eStAtr = ta.atr(eStLengthInput)
+var float eStBand = na
+var int eStTrend = 1
+eStSrc = hl2
+eStUpperBase = eStSrc + eStMultiplierInput * eStAtr
+eStLowerBase = eStSrc - eStMultiplierInput * eStAtr
+eStPrevBand = nz(eStBand[1], eStTrend == 1 ? eStLowerBase : eStUpperBase)
+eStIsNoisy = math.abs(close - eStPrevBand) < eStAtr * eStThresholdInput
+
+if eStTrend == 1
+    eStBand := eStIsNoisy ? eStPrevBand - eStAtr * eStAlphaInput : math.max(eStLowerBase, eStPrevBand)
+    if close < eStBand
+        eStTrend := -1
+        eStBand := eStUpperBase
+else
+    eStBand := eStIsNoisy ? eStPrevBand + eStAtr * eStAlphaInput : math.min(eStUpperBase, eStPrevBand)
+    if close > eStBand
+        eStTrend := 1
+        eStBand := eStLowerBase
+
+eStChanged = not na(eStTrend[1]) and eStTrend != eStTrend[1]
+eStBullFlip = eStChanged and eStTrend == 1
+eStBearFlip = eStChanged and eStTrend == -1
+
+trendIsStrong = trendStrength >= effectiveTrendNeed
+longTrendGate = trendScore >= 2 and trendIsStrong and close > vwapValue and trailDir == 1
+shortTrendGate = trendScore <= -2 and trendIsStrong and close < vwapValue and trailDir == -1
+trendDir = longTrendGate ? 1 : shortTrendGate ? -1 : 0
+
+// ------------------------- ORB / session module
+sessionSpec = tradeSession + ":" + sessionDays
+orbSpec = orbSession + ":" + sessionDays
+inTradeSession = enableOrbModule and not na(time(timeframe.period, sessionSpec, sessionTimezone))
+inORB = enableOrbModule and not na(time(timeframe.period, orbSpec, sessionTimezone))
+sessionDay = dayofmonth(time, sessionTimezone)
+sessionMonth = month(time, sessionTimezone)
+sessionYear = year(time, sessionTimezone)
+newSessionDay = enableOrbModule and (nz(ta.change(sessionDay), 0) != 0 or nz(ta.change(sessionMonth), 0) != 0 or nz(ta.change(sessionYear), 0) != 0)
+wasInORB = bar_index > 0 ? inORB[1] : false
+orbStart = inORB and not wasInORB
+orbEnd = not inORB and wasInORB
+
+var float orHigh = na
+var float orLow = na
+var float orMid = na
+var bool orDone = false
+
+if newSessionDay
+    orHigh := na
+    orLow := na
+    orMid := na
+    orDone := false
+
+if inORB
+    orHigh := na(orHigh) ? high : math.max(orHigh, high)
+    orLow := na(orLow) ? low : math.min(orLow, low)
+    orMid := (orHigh + orLow) / 2.0
+    orDone := false
+
+if orbEnd and not na(orHigh) and not na(orLow)
+    orMid := (orHigh + orLow) / 2.0
+    orDone := true
+
+if enableOrbModule and not inORB and not na(orHigh) and not na(orLow)
+    orMid := (orHigh + orLow) / 2.0
+
+var box orbBox = na
+if enableOrbModule and showORBBoxVisual and orbStart
+    orbBox := box.new(left=bar_index, top=high, right=bar_index, bottom=low, bgcolor=effectiveOrbBoxCol, border_color=effectiveOrbBorderCol)
+
+if enableOrbModule and showORBBoxVisual and inORB and not na(orbBox)
+    box.set_right(orbBox, bar_index)
+    box.set_top(orbBox, orHigh)
+    box.set_bottom(orbBox, orLow)
+
+var label highLabel = na
+var label lowLabel = na
+var label midLabel = na
+orLabelSize = f_label_size(orLabelSizeInput)
+
+if enableOrbModule and showORLabelsVisual and orbEnd
+    if not na(highLabel)
+        label.delete(highLabel)
+    if not na(lowLabel)
+        label.delete(lowLabel)
+    if not na(midLabel)
+        label.delete(midLabel)
+
+    highText = showORLabelPrices ? "OR High " + f_txt(orHigh) : "OR High"
+    lowText = showORLabelPrices ? "OR Low " + f_txt(orLow) : "OR Low"
+    midText = showORLabelPrices ? "OR Mid " + f_txt(orMid) : "OR Mid"
+    highLabel := label.new(x=bar_index, y=orHigh, text=highText, style=label.style_label_left, color=color.new(effectiveOrHighCol, 62), textcolor=color.white, size=orLabelSize)
+    lowLabel := label.new(x=bar_index, y=orLow, text=lowText, style=label.style_label_left, color=color.new(effectiveOrLowCol, 62), textcolor=color.white, size=orLabelSize)
+    midLabel := label.new(x=bar_index, y=orMid, text=midText, style=label.style_label_left, color=color.new(effectiveOrMidCol, 76), textcolor=color.white, size=orLabelSize)
+
+if enableOrbModule and showORLabelsVisual and inTradeSession
+    if not na(highLabel)
+        label.set_x(highLabel, bar_index)
+    if not na(lowLabel)
+        label.set_x(lowLabel, bar_index)
+    if not na(midLabel)
+        label.set_x(midLabel, bar_index)
+
+orbLinesVisible = showORLinesVisual and enableOrbModule and not na(orHigh) and (not extendORLinesInSessionOnly or inTradeSession)
+orbBreakAbove = enableOrbModule and orDone and not na(orHigh) and close > orHigh and close[1] <= orHigh
+orbBreakBelow = enableOrbModule and orDone and not na(orLow) and close < orLow and close[1] >= orLow
+
+// ------------------------- Structure pivots
+pivotHighFast = ta.pivothigh(high, 3, 3)
+pivotLowFast = ta.pivotlow(low, 3, 3)
+pivotHighInput = ta.pivothigh(high, pivotLen, pivotLen)
+pivotLowInput = ta.pivotlow(low, pivotLen, pivotLen)
+pivotHighSlow = ta.pivothigh(high, 8, 8)
+pivotLowSlow = ta.pivotlow(low, 8, 8)
+pivotHigh = autoTuneSensitivity ? (sensitivityBand == 0 ? pivotHighFast : sensitivityBand == 2 ? pivotHighSlow : pivotHighInput) : pivotHighInput
+pivotLow = autoTuneSensitivity ? (sensitivityBand == 0 ? pivotLowFast : sensitivityBand == 2 ? pivotLowSlow : pivotLowInput) : pivotLowInput
+
+var float lastHigh = na
+var float prevHigh = na
+var int lastHighBar = na
+var int prevHighBar = na
+var float lastLow = na
+var float prevLow = na
+var int lastLowBar = na
+var int prevLowBar = na
+var string lastHighKind = "n/a"
+var string lastLowKind = "n/a"
+var float lastHH = na
+var float lastHL = na
+var float lastLH = na
+var float lastLL = na
+
+var label[] keptLabels = array.new_label()
+var line[] keptLines = array.new_line()
+var box[] keptBoxes = array.new_box()
+
+if not na(pivotHigh)
+    prevHigh := lastHigh
+    prevHighBar := lastHighBar
+    lastHigh := pivotHigh
+    lastHighBar := bar_index - selectedPivotLen
+    if showStructure
+        highTagRaw = na(prevHigh) ? "H" : pivotHigh > prevHigh ? "HH" : "LH"
+        highTag = f_structure_text(highTagRaw)
+        lastHighKind := highTagRaw
+        lastHH := highTagRaw == "HH" ? pivotHigh : lastHH
+        lastLH := highTagRaw == "LH" ? pivotHigh : lastLH
+        lab = label.new(lastHighBar, pivotHigh, highTag, style=priceActionTextOnly ? label.style_none : label.style_label_down, color=color.new(sellColor, priceActionTextOnly ? 100 : 12), textcolor=priceActionBearTextColor, size=size.small)
+        array.unshift(keptLabels, lab)
+        if array.size(keptLabels) > 460
+            label.delete(array.pop(keptLabels))
+    if showOrderBlocks
+        top = pivotHigh + atr * 0.10
+        bottom = pivotHigh - atr * 0.35
+        bx = box.new(lastHighBar, top, bar_index + zoneExtend, bottom, bgcolor=color.new(premiumColor, zoneFillTransparency), border_color=color.new(premiumColor, zoneBorderTransparency), text=f_zone_text(premiumText), text_color=color.new(priceActionNeutralTextColor, 30), text_size=size.tiny)
+        array.unshift(keptBoxes, bx)
+        if array.size(keptBoxes) > maxZones
+            box.delete(array.pop(keptBoxes))
+
+if not na(pivotLow)
+    prevLow := lastLow
+    prevLowBar := lastLowBar
+    lastLow := pivotLow
+    lastLowBar := bar_index - selectedPivotLen
+    if showStructure
+        lowTagRaw = na(prevLow) ? "L" : pivotLow > prevLow ? "HL" : "LL"
+        lowTag = f_structure_text(lowTagRaw)
+        lastLowKind := lowTagRaw
+        lastHL := lowTagRaw == "HL" ? pivotLow : lastHL
+        lastLL := lowTagRaw == "LL" ? pivotLow : lastLL
+        lab = label.new(lastLowBar, pivotLow, lowTag, style=priceActionTextOnly ? label.style_none : label.style_label_up, color=color.new(buyColor, priceActionTextOnly ? 100 : 8), textcolor=priceActionBullTextColor, size=size.small)
+        array.unshift(keptLabels, lab)
+        if array.size(keptLabels) > 460
+            label.delete(array.pop(keptLabels))
+    if showOrderBlocks
+        top = pivotLow + atr * 0.35
+        bottom = pivotLow - atr * 0.10
+        bx = box.new(lastLowBar, top, bar_index + zoneExtend, bottom, bgcolor=color.new(discountColor, zoneFillTransparency), border_color=color.new(discountColor, zoneBorderTransparency), text=f_zone_text(discountText), text_color=color.new(priceActionNeutralTextColor, 30), text_size=size.tiny)
+        array.unshift(keptBoxes, bx)
+        if array.size(keptBoxes) > maxZones
+            box.delete(array.pop(keptBoxes))
+
+if array.size(keptBoxes) > 0
+    for i = 0 to array.size(keptBoxes) - 1
+        box.set_right(array.get(keptBoxes, i), bar_index + zoneExtend)
+
+bosUp = not na(lastHigh[1]) and close > lastHigh[1] and close[1] <= lastHigh[1]
+bosDown = not na(lastLow[1]) and close < lastLow[1] and close[1] >= lastLow[1]
+var int structureDir = 0
+priorStructureDir = nz(structureDir[1], 0)
+chochUp = bosUp and priorStructureDir == -1
+chochDown = bosDown and priorStructureDir == 1
+structureDir := bosUp ? 1 : bosDown ? -1 : priorStructureDir
+
+if showBosChoch and (bosUp or bosDown or chochUp or chochDown)
+    isBullEvent = bosUp or chochUp
+    eventText = chochUp ? chochBullText : chochDown ? chochBearText : bosUp ? bosBullText : bosBearText
+    eventPrice = isBullEvent ? lastHigh[1] : lastLow[1]
+    eventColor = isBullEvent ? buyColor : sellColor
+    lab = label.new(bar_index, eventPrice, eventText, style=priceActionTextOnly ? label.style_none : isBullEvent ? label.style_label_up : label.style_label_down, color=color.new(eventColor, priceActionTextOnly ? 100 : 4), textcolor=isBullEvent ? priceActionBullTextColor : priceActionBearTextColor, size=size.small)
+    array.unshift(keptLabels, lab)
+    if showStructureEventLines
+        ln = line.new(isBullEvent ? lastHighBar[1] : lastLowBar[1], eventPrice, bar_index, eventPrice, color=color.new(eventColor, 20), width=structureLineWidth)
+        array.unshift(keptLines, ln)
+    if array.size(keptLabels) > 460
+        label.delete(array.pop(keptLabels))
+    if array.size(keptLines) > 220
+        line.delete(array.pop(keptLines))
+
+// ------------------------- Liquidity and imbalances
+eqTol = atr * effectiveEqualAtrTol
+equalHigh = showLiquidity and not na(lastHigh) and not na(prevHigh) and math.abs(lastHigh - prevHigh) <= eqTol
+equalLow = showLiquidity and not na(lastLow) and not na(prevLow) and math.abs(lastLow - prevLow) <= eqTol
+if equalHigh and not equalHigh[1]
+    lab = label.new(bar_index, prevHigh, equalHighText, style=priceActionTextOnly ? label.style_none : label.style_label_down, color=color.new(sellColor, priceActionTextOnly ? 100 : 0), textcolor=priceActionBearTextColor, size=size.small)
+    array.unshift(keptLabels, lab)
+    if showStructureEventLines
+        ln = line.new(prevHighBar, prevHigh, bar_index + zoneExtend, prevHigh, extend=extend.none, color=color.new(sellColor, 30), style=line.style_dashed, width=structureLineWidth)
+        array.unshift(keptLines, ln)
+if equalLow and not equalLow[1]
+    lab = label.new(bar_index, prevLow, equalLowText, style=priceActionTextOnly ? label.style_none : label.style_label_up, color=color.new(buyColor, priceActionTextOnly ? 100 : 0), textcolor=priceActionBullTextColor, size=size.small)
+    array.unshift(keptLabels, lab)
+    if showStructureEventLines
+        ln = line.new(prevLowBar, prevLow, bar_index + zoneExtend, prevLow, extend=extend.none, color=color.new(buyColor, 30), style=line.style_dashed, width=structureLineWidth)
+        array.unshift(keptLines, ln)
+
+recentHighFast = ta.highest(high, 8)[1]
+recentLowFast = ta.lowest(low, 8)[1]
+recentHighInput = ta.highest(high, sweepLookback)[1]
+recentLowInput = ta.lowest(low, sweepLookback)[1]
+recentHighSlow = ta.highest(high, 24)[1]
+recentLowSlow = ta.lowest(low, 24)[1]
+recentHigh = autoTuneSensitivity ? (sensitivityBand == 0 ? recentHighFast : sensitivityBand == 2 ? recentHighSlow : recentHighInput) : recentHighInput
+recentLow = autoTuneSensitivity ? (sensitivityBand == 0 ? recentLowFast : sensitivityBand == 2 ? recentLowSlow : recentLowInput) : recentLowInput
+bearSweep = showLiquidity and not na(recentHigh) and high > recentHigh and close < recentHigh and close < open
+bullSweep = showLiquidity and not na(recentLow) and low < recentLow and close > recentLow and close > open
+if bearSweep
+    lab = label.new(bar_index, high, liquidityText, style=priceActionTextOnly ? label.style_none : label.style_label_down, color=color.new(sellColor, priceActionTextOnly ? 100 : 0), textcolor=priceActionBearTextColor, size=size.small)
+    array.unshift(keptLabels, lab)
+    if array.size(keptLabels) > 460
+        label.delete(array.pop(keptLabels))
+if bullSweep
+    lab = label.new(bar_index, low, liquidityText, style=priceActionTextOnly ? label.style_none : label.style_label_up, color=color.new(buyColor, priceActionTextOnly ? 100 : 0), textcolor=priceActionBullTextColor, size=size.small)
+    array.unshift(keptLabels, lab)
+    if array.size(keptLabels) > 460
+        label.delete(array.pop(keptLabels))
+
+bullFvg = low > high[2]
+bearFvg = high < low[2]
+if showFvg and bullFvg
+    bx = box.new(bar_index - 2, low, bar_index + zoneExtend, high[2], bgcolor=color.new(discountColor, fvgFillTransparency), border_color=color.new(discountColor, 100), text=f_fvg_text(fvgBullText), text_color=color.new(priceActionBullTextColor, 25), text_size=size.tiny)
+    array.unshift(keptBoxes, bx)
+    if array.size(keptBoxes) > maxZones
+        box.delete(array.pop(keptBoxes))
+if showFvg and bearFvg
+    bx = box.new(bar_index - 2, low[2], bar_index + zoneExtend, high, bgcolor=color.new(premiumColor, fvgFillTransparency), border_color=color.new(premiumColor, 100), text=f_fvg_text(fvgBearText), text_color=color.new(priceActionBearTextColor, 25), text_size=size.tiny)
+    array.unshift(keptBoxes, bx)
+    if array.size(keptBoxes) > maxZones
+        box.delete(array.pop(keptBoxes))
+
+// ------------------------- Premium / discount live range zones
+rangeHighFast = ta.highest(high, 60)
+rangeLowFast = ta.lowest(low, 60)
+rangeHighInput = ta.highest(high, patternLookback)
+rangeLowInput = ta.lowest(low, patternLookback)
+rangeHighSlow = ta.highest(high, 140)
+rangeLowSlow = ta.lowest(low, 140)
+effectiveRangeLookback = autoTuneSensitivity ? (sensitivityBand == 0 ? 60 : sensitivityBand == 2 ? 140 : patternLookback) : patternLookback
+rangeHigh = autoTuneSensitivity ? (sensitivityBand == 0 ? rangeHighFast : sensitivityBand == 2 ? rangeHighSlow : rangeHighInput) : rangeHighInput
+rangeLow = autoTuneSensitivity ? (sensitivityBand == 0 ? rangeLowFast : sensitivityBand == 2 ? rangeLowSlow : rangeLowInput) : rangeLowInput
+rangeMid = (rangeHigh + rangeLow) / 2.0
+rangeSize = math.max(rangeHigh - rangeLow, syminfo.mintick)
+rangeAtr = rangeSize / math.max(atr, syminfo.mintick)
+var box premiumBox = na
+var box equilibriumBox = na
+var box discountBox = na
+var line resistanceLine = na
+var line eqLine = na
+var line supportLine = na
+if showLiveRangeZones and barstate.islast
+    if not na(premiumBox)
+        box.delete(premiumBox)
+    if not na(equilibriumBox)
+        box.delete(equilibriumBox)
+    if not na(discountBox)
+        box.delete(discountBox)
+    if not na(resistanceLine)
+        line.delete(resistanceLine)
+    if not na(eqLine)
+        line.delete(eqLine)
+    if not na(supportLine)
+        line.delete(supportLine)
+    rangeSpan = math.min(effectiveRangeLookback, rangeZoneWidth)
+    rangeLeft = bar_index - rangeSpan
+    rangeRight = bar_index + math.min(zoneExtend, rangeZoneForward)
+    zoneGap = math.min(rangeSize * 0.05, atr * rangeZoneGapAtr)
+    equilibriumHalf = rangeSize * 0.07
+    premiumBottom = rangeMid + equilibriumHalf + zoneGap
+    equilibriumTop = rangeMid + equilibriumHalf
+    equilibriumBottom = rangeMid - equilibriumHalf
+    discountTop = rangeMid - equilibriumHalf - zoneGap
+    premiumBox := box.new(rangeLeft, rangeHigh, rangeRight, premiumBottom, bgcolor=color.new(premiumColor, rangeFillTransparency), border_color=color.new(premiumColor, zoneBorderTransparency), text=showRangeZoneLabels ? premiumText : "", text_color=color.new(priceActionNeutralTextColor, 22), text_size=size.tiny)
+    equilibriumBox := box.new(rangeLeft, equilibriumTop, rangeRight, equilibriumBottom, bgcolor=color.new(equilibriumColor, math.min(rangeFillTransparency - 4, 100)), border_color=color.new(equilibriumColor, zoneBorderTransparency), text=showRangeZoneLabels and showEquilibriumLabel ? equilibriumText : "", text_color=color.new(priceActionNeutralTextColor, 18), text_size=size.tiny)
+    discountBox := box.new(rangeLeft, discountTop, rangeRight, rangeLow, bgcolor=color.new(discountColor, rangeFillTransparency), border_color=color.new(discountColor, zoneBorderTransparency), text=showRangeZoneLabels ? discountText : "", text_color=color.new(priceActionNeutralTextColor, 22), text_size=size.tiny)
+    if showRangeGuideLines
+        eqLineWidth = rangeLineWidth > 2 ? rangeLineWidth - 1 : 2
+        resistanceLine := line.new(rangeLeft, rangeHigh, rangeRight, rangeHigh, extend=extend.none, color=color.new(color.white, 18), width=rangeLineWidth)
+        eqLine := line.new(rangeLeft, rangeMid, rangeRight, rangeMid, extend=extend.none, color=color.new(equilibriumColor, 35), width=eqLineWidth)
+        supportLine := line.new(rangeLeft, rangeLow, rangeRight, rangeLow, extend=extend.none, color=color.new(color.white, 18), width=rangeLineWidth)
+
+// ------------------------- Squeeze, patterns, signals
+bbBasis = ta.sma(close, bbLen)
+bbDev = ta.stdev(close, bbLen) * bbMult
+bbUpper = bbBasis + bbDev
+bbLower = bbBasis - bbDev
+kcBasis = ta.ema(close, kcLen)
+kcRange = ta.ema(ta.tr(true), kcLen) * kcMult
+kcUpper = kcBasis + kcRange
+kcLower = kcBasis - kcRange
+bbWidth = bbUpper - bbLower
+kcWidth = math.max(kcUpper - kcLower, syminfo.mintick)
+squeezePct = f_clamp(100.0 * (1.0 - bbWidth / kcWidth), 0.0, 100.0)
+squeezeOn = bbUpper < kcUpper and bbLower > kcLower
+squeezeRelease = squeezeOn[1] and not squeezeOn
+volatilityPct = atr / math.max(close, syminfo.mintick) * 100.0
+volumeSentiment = na(relVol) ? 0.0 : f_clamp((relVol - 1.0) * 100.0, -100.0, 200.0)
+
+tol = atr * effectivePatternAtrTol
+flatHighs = not na(lastHigh) and not na(prevHigh) and math.abs(lastHigh - prevHigh) <= tol
+flatLows = not na(lastLow) and not na(prevLow) and math.abs(lastLow - prevLow) <= tol
+risingHighs = not na(lastHigh) and not na(prevHigh) and lastHigh > prevHigh + tol * 0.25
+fallingHighs = not na(lastHigh) and not na(prevHigh) and lastHigh < prevHigh - tol * 0.25
+risingLows = not na(lastLow) and not na(prevLow) and lastLow > prevLow + tol * 0.25
+fallingLows = not na(lastLow) and not na(prevLow) and lastLow < prevLow - tol * 0.25
+widthNow = not na(lastHigh) and not na(lastLow) ? lastHigh - lastLow : na
+widthPrior = not na(prevHigh) and not na(prevLow) ? prevHigh - prevLow : na
+expanding = not na(widthNow) and not na(widthPrior) and widthNow > widthPrior + tol
+
+patternCode = squeezeOn and rangeAtr <= 6 ? 1 :
+  flatLows and flatHighs ? 4 :
+  flatLows and fallingHighs ? 7 :
+  flatHighs and risingLows ? 6 :
+  fallingHighs and risingLows ? 5 :
+  risingHighs and fallingLows and expanding ? 8 :
+  fallingHighs and fallingLows and expanding ? 9 :
+  flatHighs and high >= lastHigh - tol and close < open ? 3 :
+  flatLows and low <= lastLow + tol and close > open ? 2 : 0
+patternName = f_pattern_name(patternCode)
+timeframeLabel = f_tf_label()
+
+breakout = close > ta.highest(high, 20)[1]
+breakdown = close < ta.lowest(low, 20)[1]
+vwapReclaim = ta.crossover(close, vwapValue)
+vwapLost = ta.crossunder(close, vwapValue)
+bullContext = structureDir == 1 or chochUp or bosUp
+bearContext = structureDir == -1 or chochDown or bosDown
+baseStrictNeed = signalStrictness == "Strict" ? 7 : signalStrictness == "Balanced" ? 5 : 3
+autoStrictOffset = autoTuneSensitivity ? (effectiveSensitivity >= 17 ? 1 : effectiveSensitivity <= 9 ? -1 : 0) : 0
+strictNeed = int(f_clamp(baseStrictNeed + autoStrictOffset, 3, 8))
+longScore = 0
+longScore += close > emaFast ? 1 : 0
+longScore += emaFast > emaMid ? 1 : 0
+longScore += close > vwapValue ? 1 : 0
+longScore += trailDir == 1 ? 1 : 0
+longScore += plusDi > minusDi ? 1 : 0
+longScore += bullContext ? 1 : 0
+longScore += bullSweep or bullFvg ? 1 : 0
+longScore += squeezeRelease and close > emaFast ? 1 : 0
+longScore += orbBreakAbove ? 1 : 0
+shortScore = 0
+shortScore += close < emaFast ? 1 : 0
+shortScore += emaFast < emaMid ? 1 : 0
+shortScore += close < vwapValue ? 1 : 0
+shortScore += trailDir == -1 ? 1 : 0
+shortScore += minusDi > plusDi ? 1 : 0
+shortScore += bearContext ? 1 : 0
+shortScore += bearSweep or bearFvg ? 1 : 0
+shortScore += squeezeRelease and close < emaFast ? 1 : 0
+shortScore += orbBreakBelow ? 1 : 0
+confirmed = not confirmOnClose or barstate.isconfirmed
+longTrigger = trailFlipUp or vwapReclaim or bosUp or chochUp or bullSweep or squeezeRelease or breakout or orbBreakAbove
+shortTrigger = trailFlipDown or vwapLost or bosDown or chochDown or bearSweep or squeezeRelease or breakdown or orbBreakBelow
+longScoreGate = longScore >= strictNeed
+shortScoreGate = shortScore >= strictNeed
+longDirectionGate = close > vwapValue or trailDir == 1 or bullContext or orbBreakAbove
+shortDirectionGate = close < vwapValue or trailDir == -1 or bearContext or orbBreakBelow
+longSignalGate = requireTrendGateForSignals ? longTrendGate : longDirectionGate
+shortSignalGate = requireTrendGateForSignals ? shortTrendGate : shortDirectionGate
+longSignalRaw = confirmed and longScoreGate and longTrigger and longSignalGate
+shortSignalRaw = confirmed and shortScoreGate and shortTrigger and shortSignalGate
+buyGate = longSignalRaw and (not shortSignalRaw or longScore > shortScore)
+sellGate = shortSignalRaw and (not longSignalRaw or shortScore > longScore)
+buySignal = buyGate
+sellSignal = sellGate
+riskSignal = confirmed and ((trailLost and structureDir == 1) or (trailReclaimed and structureDir == -1))
+state = buySignal or sellSignal ? 2 : riskSignal ? -1 : orbBreakAbove or orbBreakBelow or squeezeOn or patternCode > 0 ? 1 : 0
+signalSummary = buySignal ? "BUY WATCH TRUE" : sellSignal ? "SELL WATCH TRUE" : riskSignal ? "RISK" : "WAIT"
+
+// ------------------------- Visual overlay
+candleUpColour = barColorMode == "Green/red candles" ? greenCandleCol : color.new(buyColor, 0)
+candleDownColour = barColorMode == "Green/red candles" ? redCandleCol : color.new(sellColor, 0)
+candleMatchColour = close > open ? candleUpColour : close < open ? candleDownColour : color.new(priceActionNeutralTextColor, 0)
+finalBarColour = barColorMode == "Off" ? na : candleMatchColour
+ribbonCustomColour = close > open ? ribbonBullColorInput : close < open ? ribbonBearColorInput : ribbonNeutralColorInput
+ribbonBarColour = ribbonUseCustomColours ? ribbonCustomColour : candleMatchColour
+
+bgcolor(showSessionShadeVisual and inTradeSession ? effectiveSessionShadeCol : na, title="Trading Session Shade")
+
+plot(showMadridRibbon ? madridMa05 : na, "Madrid MMA05", color=ribbonBarColour, linewidth=3)
+plot(showMadridRibbon ? madridMa10 : na, "Madrid MMA10", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa15 : na, "Madrid MMA15", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa20 : na, "Madrid MMA20", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa25 : na, "Madrid MMA25", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa30 : na, "Madrid MMA30", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa35 : na, "Madrid MMA35", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa40 : na, "Madrid MMA40", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa45 : na, "Madrid MMA45", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa50 : na, "Madrid MMA50", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa55 : na, "Madrid MMA55", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa60 : na, "Madrid MMA60", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa65 : na, "Madrid MMA65", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa70 : na, "Madrid MMA70", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa75 : na, "Madrid MMA75", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa80 : na, "Madrid MMA80", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa85 : na, "Madrid MMA85", color=ribbonBarColour, linewidth=1)
+plot(showMadridRibbon ? madridMa90 : na, "Madrid MMA90", color=ribbonBarColour, linewidth=3)
+
+plot(showSmartTrail ? smartTrail : na, "Smart Trail", color=trailDir == 1 ? color.new(buyColor, 0) : color.new(sellColor, 0), linewidth=2)
+plot(showVWAPVisual ? vwapValue : na, "VWAP", color=effectiveVwapColor, linewidth=vwapLineWidth)
+
+plot(orbLinesVisible ? orHigh : na, "OR High", color=effectiveOrHighCol, linewidth=orLineWidth, style=plot.style_linebr)
+plot(orbLinesVisible ? orLow : na, "OR Low", color=effectiveOrLowCol, linewidth=orLineWidth, style=plot.style_linebr)
+plot(orbLinesVisible ? orMid : na, "OR Mid", color=color.new(effectiveOrMidCol, 35), linewidth=orMidLineWidth, style=plot.style_linebr)
+
+eStColor = eStTrend == 1 ? eStBullLineCol : eStBearLineCol
+if showEvasiveST and showEvasiveSTLabels and eStChanged
+    label.new(bar_index, eStBand, text=eStTrend == 1 ? "BULL" : "BEAR", color=eStColor, textcolor=color.white, style=eStTrend == 1 ? label.style_label_up : label.style_label_down, size=size.tiny)
+
+barcolor(finalBarColour)
+
+plotshape(showSignalLabels and buySignal, title="Buy watch icon", style=shape.triangleup, location=location.belowbar, color=color.new(buyColor, 0), size=size.normal)
+plotshape(showSignalLabels and sellSignal, title="Sell watch icon", style=shape.triangledown, location=location.abovebar, color=color.new(sellColor, 0), size=size.normal)
+plotshape(showSignalLabels and riskSignal, title="Risk icon", style=shape.diamond, location=location.abovebar, color=color.new(riskSignalColorInput, 0), size=size.tiny)
+
+var line patternUpper = na
+var line patternLower = na
+var line patternUpperShadow = na
+var line patternLowerShadow = na
+var line swingHighRail = na
+var line swingLowRail = na
+var line swingHighRailShadow = na
+var line swingLowRailShadow = na
+var linefill patternFill = na
+if showSwingRails and barstate.islast
+    if not na(swingHighRail)
+        line.delete(swingHighRail)
+    if not na(swingLowRail)
+        line.delete(swingLowRail)
+    if not na(swingHighRailShadow)
+        line.delete(swingHighRailShadow)
+    if not na(swingLowRailShadow)
+        line.delete(swingLowRailShadow)
+    shadowLineWidth = patternLineWidth >= 8 ? 10 : patternLineWidth + 3
+    if not na(prevHighBar) and not na(lastHighBar)
+        highRailColor = patternUseDirectionalColours ? (lastHigh >= prevHigh ? color.new(buyColor, 0) : color.new(sellColor, 0)) : color.new(patternGray, 0)
+        if showLineShadows
+            swingHighRailShadow := line.new(prevHighBar, prevHigh, lastHighBar, lastHigh, extend=extend.none, color=color.new(highRailColor, lineShadowTransparency), width=shadowLineWidth)
+        swingHighRail := line.new(prevHighBar, prevHigh, lastHighBar, lastHigh, extend=extend.none, color=color.new(highRailColor, patternLineTransparency), width=patternLineWidth)
+    if not na(prevLowBar) and not na(lastLowBar)
+        lowRailColor = patternUseDirectionalColours ? (lastLow >= prevLow ? color.new(buyColor, 0) : color.new(sellColor, 0)) : color.new(patternGray, 0)
+        if showLineShadows
+            swingLowRailShadow := line.new(prevLowBar, prevLow, lastLowBar, lastLow, extend=extend.none, color=color.new(lowRailColor, lineShadowTransparency), width=shadowLineWidth)
+        swingLowRail := line.new(prevLowBar, prevLow, lastLowBar, lastLow, extend=extend.none, color=color.new(lowRailColor, patternLineTransparency), width=patternLineWidth)
+
+if showPattern and barstate.islast
+    if not na(patternUpper)
+        line.delete(patternUpper)
+    if not na(patternLower)
+        line.delete(patternLower)
+    if not na(patternUpperShadow)
+        line.delete(patternUpperShadow)
+    if not na(patternLowerShadow)
+        line.delete(patternLowerShadow)
+    if not na(patternFill)
+        linefill.delete(patternFill)
+    if patternCode > 0 and not na(prevHighBar) and not na(lastHighBar) and not na(prevLowBar) and not na(lastLowBar)
+        directionalPatColor = patternCode == 2 or patternCode == 6 ? buyColor : patternCode == 3 or patternCode == 7 or patternCode == 9 ? sellColor : riskSignalColorInput
+        patColor = patternUseDirectionalColours ? directionalPatColor : patternGray
+        yH1 = patternCode == 6 or patternCode == 4 or patternCode == 3 ? math.max(prevHigh, lastHigh) : prevHigh
+        yH2 = patternCode == 6 or patternCode == 4 or patternCode == 3 ? math.max(prevHigh, lastHigh) : lastHigh
+        yL1 = patternCode == 7 or patternCode == 4 or patternCode == 2 ? math.min(prevLow, lastLow) : prevLow
+        yL2 = patternCode == 7 or patternCode == 4 or patternCode == 2 ? math.min(prevLow, lastLow) : lastLow
+        patternLeft = math.min(prevHighBar, prevLowBar)
+        patternRightBase = math.max(lastHighBar, lastLowBar)
+        patternRight = math.min(patternRightBase + patternProjectionBars, bar_index + patternProjectionBars)
+        upperLeft = f_project_y(prevHighBar, yH1, lastHighBar, yH2, patternLeft)
+        upperRight = f_project_y(prevHighBar, yH1, lastHighBar, yH2, patternRight)
+        lowerLeft = f_project_y(prevLowBar, yL1, lastLowBar, yL2, patternLeft)
+        lowerRight = f_project_y(prevLowBar, yL1, lastLowBar, yL2, patternRight)
+        patternShadowWidth = patternLineWidth >= 8 ? 10 : patternLineWidth + 3
+        if showLineShadows
+            patternUpperShadow := line.new(patternLeft, upperLeft, patternRight, upperRight, extend=extend.none, color=color.new(patColor, lineShadowTransparency), width=patternShadowWidth)
+            patternLowerShadow := line.new(patternLeft, lowerLeft, patternRight, lowerRight, extend=extend.none, color=color.new(patColor, lineShadowTransparency), width=patternShadowWidth)
+        patternUpper := line.new(patternLeft, upperLeft, patternRight, upperRight, extend=extend.none, color=color.new(patColor, patternLineTransparency), width=patternLineWidth)
+        patternLower := line.new(patternLeft, lowerLeft, patternRight, lowerRight, extend=extend.none, color=color.new(patColor, patternLineTransparency), width=patternLineWidth)
+        patternFill := showPatternFill ? linefill.new(patternUpper, patternLower, color.new(patColor, patternFillTransparency)) : na
+
+momentumStrip = rsiValue - 50.0
+
+// ------------------------- Dashboards
+sensitivityText = (autoTuneSensitivity ? "Auto " : "Manual ") + str.tostring(effectiveSensitivity) + " [" + (sensitivityBand == 0 ? "fast" : sensitivityBand == 2 ? "slow" : "balanced") + "]"
+trendStrengthText = (trendIsStrong ? "Trending " : "Ranging ") + f_bias_name(trendDir) + " (" + str.tostring(trendStrength, "#.##") + "% | need " + str.tostring(effectiveTrendNeed, "#.##") + " | score " + str.tostring(trendScore) + ")"
+buyGateText = f_gate(buyGate) + " " + str.tostring(longScore) + "/" + str.tostring(strictNeed) + " trig " + f_gate(longTrigger) + " dir " + f_gate(longSignalGate) + " trend " + f_gate(longTrendGate)
+sellGateText = f_gate(sellGate) + " " + str.tostring(shortScore) + "/" + str.tostring(strictNeed) + " trig " + f_gate(shortTrigger) + " dir " + f_gate(shortSignalGate) + " trend " + f_gate(shortTrendGate)
+volText = volatilityPct >= 1.2 ? "High" : volatilityPct >= 0.45 ? "Moderate" : "Low"
+orbDashText = not enableOrbModule ? "Off" : inORB ? "Building" : orDone ? "Done H " + f_txt(orHigh) + " L " + f_txt(orLow) : "Waiting"
+
+miniTextSize = f_label_size(miniDashTextSizeInput)
+miniLogoTextSize = f_label_size_plus_two(miniDashTextSizeInput)
+miniPatternTextSize = f_label_size(miniPatternTextSizeInput)
+miniHeaderBg = color.new(miniDashHeaderBgInput, miniDashHeaderTransparency)
+miniBodyBg = color.new(miniDashBodyBgInput, miniDashBgTransparency)
+miniAltBg = color.new(miniDashAltBgInput, miniDashBgTransparency)
+miniHiddenBg = color.new(miniDashBodyBgInput, 100)
+miniMutedText = color.new(miniDashTextInput, 100)
+dashBullColor = miniDashBullInput
+dashBearColor = sellColor
+miniChangePct = not na(close[1]) and close[1] != 0 ? (close - close[1]) / close[1] * 100.0 : na
+miniChangeText = na(miniChangePct) ? "n/a" : str.tostring(miniChangePct, "#.##") + "%"
+miniChangeColor = na(miniChangePct) ? miniDashTextInput : miniChangePct > 0 ? dashBullColor : miniChangePct < 0 ? dashBearColor : miniDashTextInput
+miniScoreRaw = f_clamp(math.max(longScore, shortScore) / 9.0 * 100.0, 0.0, 100.0)
+miniScore = int(math.round(miniScoreRaw))
+miniScoreColor = miniScore >= 70 ? dashBullColor : miniScore >= 50 ? miniDashWarnInput : dashBearColor
+maBullCount = 0
+maBullCount += close > emaFast ? 1 : 0
+maBullCount += close > emaMid ? 1 : 0
+maBullCount += close > emaSlow ? 1 : 0
+maBullCount += close > emaRegime ? 1 : 0
+maBearCount = 4 - maBullCount
+maScoreText = str.tostring(maBullCount) + "/4"
+maScoreColor = maBullCount >= 3 ? dashBullColor : maBullCount <= 1 ? dashBearColor : miniDashWarnInput
+miniVwapText = close >= vwapValue ? "Above" : "Below"
+miniVwapColor = close >= vwapValue ? dashBullColor : dashBearColor
+miniSignalBias = buySignal or (longScore > shortScore and maBullCount >= 3) ? 1 : sellSignal or (shortScore > longScore and maBullCount <= 1) ? -1 : 0
+miniRiskBias = riskSignal ? -1 : miniSignalBias
+miniSignalText = f_bias_name(miniSignalBias)
+miniSignalColor = miniSignalBias == 1 ? dashBullColor : miniSignalBias == -1 ? dashBearColor : miniDashTextInput
+miniRiskText = f_bias_name(miniRiskBias)
+miniRiskColor = miniRiskBias == 1 ? dashBullColor : miniRiskBias == -1 ? dashBearColor : miniDashTextInput
+miniTrailText = trailDir == 1 ? "UP" : "DOWN"
+miniTrailColor = trailDir == 1 ? dashBullColor : dashBearColor
+miniStructText = structureDir == 1 ? "HH/HL" : structureDir == -1 ? "LH/LL" : "MIX"
+miniStructColor = structureDir == 1 ? dashBullColor : structureDir == -1 ? dashBearColor : miniDashTextInput
+miniBosText = bosUp ? "BOS+" : bosDown ? "BOS-" : "-"
+miniBosColor = bosUp ? dashBullColor : bosDown ? dashBearColor : miniDashTextInput
+miniChochText = chochUp ? "CH+" : chochDown ? "CH-" : "-"
+miniChochColor = chochUp ? dashBullColor : chochDown ? dashBearColor : miniDashTextInput
+miniRsiText = na(rsiValue) ? "n/a" : str.tostring(rsiValue, "#")
+miniRsiColor = rsiValue >= 55 ? dashBullColor : rsiValue <= 45 ? dashBearColor : miniDashTextInput
+miniAdxText = na(adxValue) ? "n/a" : str.tostring(adxValue, "#")
+miniAdxColor = adxValue >= 20 ? miniDashWarnInput : miniDashTextInput
+miniPhaseRaw = squeezeOn ? "SQUEEZE" : patternCode == 4 ? "BASE" : trendDir == 1 ? "MARKUP" : trendDir == -1 ? "MARKDN" : "MIXED"
+miniPhaseText = miniPhaseRaw
+miniPhaseColor = miniPhaseRaw == "MARKUP" ? dashBullColor : miniPhaseRaw == "MARKDN" ? dashBearColor : miniPhaseRaw == "SQUEEZE" ? miniDashWarnInput : miniDashTextInput
+miniPatternNameText = compactPatternPanel ? patternName : patternName + " " + f_gate(longTrendGate) + "/" + f_gate(shortTrendGate)
+miniPatternDashText = patternCode == 9 or patternCode == 7 ? "Descending" : patternCode == 8 or patternCode == 6 ? "Ascending" : patternCode == 5 ? "Sym Triangle" : patternCode == 4 ? "Ranging" : patternCode == 1 ? "Squeeze" : patternName
+miniPatternTrendText = f_gate(longTrendGate) + "/" + f_gate(shortTrendGate)
+miniPatternBuyText = "B " + str.tostring(longScore) + "/" + str.tostring(strictNeed)
+miniPatternSellText = "S " + str.tostring(shortScore) + "/" + str.tostring(strictNeed)
+miniPatternColor = patternCode == 2 or patternCode == 6 or trendDir == 1 ? dashBullColor : patternCode == 3 or patternCode == 7 or patternCode == 9 or trendDir == -1 ? dashBearColor : miniDashTextInput
+miniMa1State = request.security(syminfo.tickerid, "1", f_mini_ma_state(), ignore_invalid_symbol=true, calc_bars_count=220)
+miniMa5State = request.security(syminfo.tickerid, "5", f_mini_ma_state(), ignore_invalid_symbol=true, calc_bars_count=220)
+miniMa15State = request.security(syminfo.tickerid, "15", f_mini_ma_state(), ignore_invalid_symbol=true, calc_bars_count=220)
+miniVolumeUp = volume >= nz(volume[1], volume)
+[miniMacdLine, miniMacdSignalLine, miniMacdHist] = ta.macd(close, 12, 26, 9)
+miniMacdSpread = math.abs(miniMacdLine - miniMacdSignalLine)
+miniMacdSpreadPrev = nz(math.abs(miniMacdLine[1] - miniMacdSignalLine[1]), miniMacdSpread)
+miniMacdText = miniMacdSpread >= miniMacdSpreadPrev ? "Diverging" : "Converging"
+miniMacdDir = miniMacdHist >= 0 ? 1 : -1
+miniMacdColor = miniMacdText == "Diverging" ? (miniMacdDir >= 0 ? dashBullColor : dashBearColor) : miniDashWarnInput
+miniTrailArrow = trailDir == 1 ? "▲" : "▼"
+miniVolumeArrow = miniVolumeUp ? "▲" : "▼"
+miniBlueConfirmColor = color.rgb(70, 130, 255)
+miniIsTopAnchor = f_table_is_top(miniDashPositionInput)
+miniIsBottomAnchor = f_table_is_bottom(miniDashPositionInput)
+miniTitleRow = miniIsTopAnchor ? math.max(miniDashTopOffsetRows + miniDashMoveDownRows, 1) : miniIsBottomAnchor ? 0 : miniDashMoveDownRows
+miniHeaderRow = miniTitleRow + 1
+miniValueRow = miniHeaderRow + (showMiniDashHeader ? 1 : 0)
+miniClearBg = color.new(miniDashBodyBgInput, 100)
+miniClearText = color.new(miniDashTextInput, 100)
+
+var int miniDashCols = 16
+var int miniDashRows = 18
+var table miniDash = table.new(f_table_position(miniDashPositionInput), miniDashCols, miniDashRows, border_color=miniDashBorderInput, border_width=0)
+
+f_mini_cell(int rowNum, int colNum, string cellTxt, color tcol, color bcol) =>
+    table.cell(miniDash, colNum, rowNum, na(cellTxt) ? "-" : cellTxt, bgcolor=bcol, text_color=tcol, text_size=miniTextSize)
+    colNum + 1
+
+f_mini_title(int rowNum) =>
+    for colNum = 0 to miniDashCols - 1
+        logoTxt = colNum == 0 ? "▰ СПУТНИК ▰" : ""
+        table.cell(miniDash, colNum, rowNum, logoTxt, bgcolor=miniHeaderBg, text_color=dashBullColor, text_size=miniLogoTextSize)
+
+f_mini_pad_rows(int startRow, int rowCount) =>
+    if rowCount > 0 and startRow <= miniDashRows - 1
+        endRow = math.min(startRow + rowCount - 1, miniDashRows - 1)
+        for c = 0 to miniDashCols - 1
+            for r = startRow to endRow
+                table.cell(miniDash, c, r, " ", bgcolor=miniClearBg, text_color=miniClearText, text_size=miniTextSize)
+
+f_mini_header(int rowNum) =>
+    colNum = 0
+    if miniDashShowTicker
+        colNum := f_mini_cell(rowNum, colNum, "🛰️ TICKER", miniDashTextInput, miniHeaderBg)
+    if miniDashShowPrice
+        colNum := f_mini_cell(rowNum, colNum, "💲 PRICE", miniDashTextInput, miniHeaderBg)
+    if miniDashShowChange
+        colNum := f_mini_cell(rowNum, colNum, "📈 %", miniDashTextInput, miniHeaderBg)
+    if miniDashShowMa1
+        colNum := f_mini_cell(rowNum, colNum, "⚡ MA 1m", miniDashTextInput, miniHeaderBg)
+    if miniDashShowMa5
+        colNum := f_mini_cell(rowNum, colNum, "⚡ MA 5m", miniDashTextInput, miniHeaderBg)
+    if miniDashShowMa15
+        colNum := f_mini_cell(rowNum, colNum, "⚡ MA 15m", miniDashTextInput, miniHeaderBg)
+    if miniDashShowVwap
+        colNum := f_mini_cell(rowNum, colNum, "🌊 VWAP", miniDashTextInput, miniHeaderBg)
+    if miniDashShowTrail
+        colNum := f_mini_cell(rowNum, colNum, "🧭 TRAIL", miniDashTextInput, miniHeaderBg)
+    if miniDashShowVolume
+        colNum := f_mini_cell(rowNum, colNum, "🔊 VOLUME", miniDashTextInput, miniHeaderBg)
+    if miniDashShowStructure
+        colNum := f_mini_cell(rowNum, colNum, "🧱 STRUCT", miniDashTextInput, miniHeaderBg)
+    if miniDashShowPattern
+        colNum := f_mini_cell(rowNum, colNum, "🧩 PATTERN", miniDashTextInput, miniHeaderBg)
+    if miniDashShowBos
+        colNum := f_mini_cell(rowNum, colNum, "⚡ BOS", miniDashTextInput, miniHeaderBg)
+    if miniDashShowChoch
+        colNum := f_mini_cell(rowNum, colNum, "🔄 CHOC", miniDashTextInput, miniHeaderBg)
+    if miniDashShowRsi
+        colNum := f_mini_cell(rowNum, colNum, "📊 RSI", miniDashTextInput, miniHeaderBg)
+    if miniDashShowAdx
+        colNum := f_mini_cell(rowNum, colNum, "📐 ADX", miniDashTextInput, miniHeaderBg)
+    if miniDashShowMacd
+        colNum := f_mini_cell(rowNum, colNum, "🌊 MACD", miniDashTextInput, miniHeaderBg)
+
+f_mini_row(int rowNum) =>
+    colNum = 0
+    if miniDashShowTicker
+        colNum := f_mini_cell(rowNum, colNum, syminfo.ticker, miniDashTextInput, miniBodyBg)
+    if miniDashShowPrice
+        colNum := f_mini_cell(rowNum, colNum, f_txt(close), miniDashTextInput, miniBodyBg)
+    if miniDashShowChange
+        colNum := f_mini_cell(rowNum, colNum, miniChangeText, miniChangeColor, miniBodyBg)
+    if miniDashShowMa1
+        colNum := f_mini_cell(rowNum, colNum, f_mini_ma_txt(miniMa1State), f_mini_ma_col(miniMa1State, dashBullColor, dashBearColor, miniDashTextInput), miniBodyBg)
+    if miniDashShowMa5
+        colNum := f_mini_cell(rowNum, colNum, f_mini_ma_txt(miniMa5State), f_mini_ma_col(miniMa5State, dashBullColor, dashBearColor, miniDashTextInput), miniBodyBg)
+    if miniDashShowMa15
+        colNum := f_mini_cell(rowNum, colNum, f_mini_ma_txt(miniMa15State), f_mini_ma_col(miniMa15State, dashBullColor, dashBearColor, miniDashTextInput), miniBodyBg)
+    if miniDashShowVwap
+        colNum := f_mini_cell(rowNum, colNum, miniVwapText, miniVwapColor, miniBodyBg)
+    if miniDashShowTrail
+        colNum := f_mini_cell(rowNum, colNum, miniTrailArrow, trailDir == 1 ? miniBlueConfirmColor : dashBearColor, miniBodyBg)
+    if miniDashShowVolume
+        colNum := f_mini_cell(rowNum, colNum, miniVolumeArrow, miniVolumeUp ? miniBlueConfirmColor : dashBearColor, miniBodyBg)
+    if miniDashShowStructure
+        colNum := f_mini_cell(rowNum, colNum, miniStructText, miniStructColor, miniBodyBg)
+    if miniDashShowPattern
+        colNum := f_mini_cell(rowNum, colNum, miniPatternDashText, miniPatternColor, miniBodyBg)
+    if miniDashShowBos
+        colNum := f_mini_cell(rowNum, colNum, miniBosText, miniBosColor, miniBodyBg)
+    if miniDashShowChoch
+        colNum := f_mini_cell(rowNum, colNum, miniChochText, miniChochColor, miniBodyBg)
+    if miniDashShowRsi
+        colNum := f_mini_cell(rowNum, colNum, miniRsiText, miniRsiColor, miniBodyBg)
+    if miniDashShowAdx
+        colNum := f_mini_cell(rowNum, colNum, miniAdxText, adxValue >= 25 ? dashBullColor : adxValue >= 18 ? miniDashWarnInput : miniDashTextInput, miniBodyBg)
+    if miniDashShowMacd
+        colNum := f_mini_cell(rowNum, colNum, miniMacdText, miniMacdColor, miniBodyBg)
+
+if barstate.islast
+    table.clear(miniDash, 0, 0, miniDashCols - 1, miniDashRows - 1)
+    f_mini_pad_rows(0, miniTitleRow)
+    if showMiniDash
+        f_mini_title(miniTitleRow)
+        if showMiniDashHeader
+            f_mini_header(miniHeaderRow)
+        f_mini_row(miniValueRow)
+        if not miniIsTopAnchor
+            f_mini_pad_rows(miniValueRow + 1, miniDashMoveUpRows)
+
+var table dash = table.new(position.bottom_right, 2, 9, border_width=1)
+if showDashboard and barstate.islast
+    table.cell(dash, 0, 0, "Sensitivity", bgcolor=dashBlue, text_color=color.white)
+    table.cell(dash, 1, 0, sensitivityText, bgcolor=dashBlue, text_color=color.white)
+    table.cell(dash, 0, 1, "Trend Strength", bgcolor=dashBlueDark, text_color=color.white)
+    table.cell(dash, 1, 1, trendStrengthText, bgcolor=dashBlueDark, text_color=trendDir == 1 ? buyColor : trendDir == -1 ? sellColor : color.white)
+    table.cell(dash, 0, 2, "Buy Value", bgcolor=dashBlue, text_color=color.white)
+    table.cell(dash, 1, 2, buyGateText, bgcolor=dashBlue, text_color=buyGate ? color.lime : color.white)
+    table.cell(dash, 0, 3, "Sell Value", bgcolor=dashBlueDark, text_color=color.white)
+    table.cell(dash, 1, 3, sellGateText, bgcolor=dashBlueDark, text_color=sellGate ? color.red : color.white)
+    table.cell(dash, 0, 4, "ORB", bgcolor=dashBlue, text_color=color.white)
+    table.cell(dash, 1, 4, orbDashText, bgcolor=dashBlue, text_color=orbBreakAbove ? buyColor : orbBreakBelow ? sellColor : color.white)
+    table.cell(dash, 0, 5, "Squeeze", bgcolor=dashBlueDark, text_color=color.white)
+    table.cell(dash, 1, 5, f_pct(squeezePct), bgcolor=dashBlueDark, text_color=squeezeOn ? color.yellow : color.white)
+    table.cell(dash, 0, 6, "Last Volatility", bgcolor=dashBlue, text_color=color.white)
+    table.cell(dash, 1, 6, volText, bgcolor=dashBlue, text_color=color.white)
+    table.cell(dash, 0, 7, "Volume Sentiment", bgcolor=dashBlueDark, text_color=color.white)
+    table.cell(dash, 1, 7, f_pct(volumeSentiment), bgcolor=dashBlueDark, text_color=volumeSentiment >= 0 ? buyColor : sellColor)
+    table.cell(dash, 0, 8, "State", bgcolor=dashBlue, text_color=color.white)
+    table.cell(dash, 1, 8, signalSummary + " / " + f_state_name(state), bgcolor=dashBlue, text_color=state == 2 ? color.lime : state < 0 ? color.red : color.yellow)
+
+// ------------------------- Cloudflare / Telegram alerts
+// Create one TradingView alert with:
+// Condition: this indicator -> Any alert() function call
+// Webhook URL: your Cloudflare Worker URL
+// Message box: leave blank
+
+f_status_compact(bool buy, bool sell, bool risk, int st) =>
+    buy ? "BUY WATCH" :
+     sell ? "SELL / EXIT WATCH" :
+     risk ? "RISK" :
+     st == 1 ? "WAIT" :
+     "MONITOR"
+
+f_vwap_state() =>
+    vwapReclaim ? "VWAP RECLAIM" :
+     vwapLost ? "VWAP LOST" :
+     close > vwapValue ? "VWAP ABOVE" :
+     "VWAP BELOW"
+
+f_st_state() =>
+    useEvasiveSTForAlerts ?
+     (eStBullFlip ? "ST FLIP UP" :
+       eStBearFlip ? "ST FLIP DOWN" :
+       eStTrend == 1 ? "ST BULL" :
+       "ST BEAR") :
+     (trailFlipUp ? "TRAIL FLIP UP" :
+       trailFlipDown ? "TRAIL FLIP DOWN" :
+       trailDir == 1 ? "TRAIL BULL" :
+       "TRAIL BEAR")
+
+f_direction_state() =>
+    buySignal or bosUp or chochUp or bullSweep or trailFlipUp or eStBullFlip or vwapReclaim or orbBreakAbove ? "bullish" :
+     sellSignal or bosDown or chochDown or bearSweep or trailFlipDown or eStBearFlip or vwapLost or orbBreakBelow ? "bearish" :
+     riskSignal ? "risk" :
+     "neutral"
+
+f_orb_state() =>
+    not enableOrbModule ? "ORB OFF" :
+     inORB ? "ORB BUILDING" :
+     orbBreakAbove ? "OR BREAK ABOVE" :
+     orbBreakBelow ? "OR BREAK BELOW" :
+     orDone ? "OR SET" :
+     "OR WAIT"
+
+structureEvent = chochUp ? "CHoCH+" : chochDown ? "CHoCH-" : bosUp ? "BOS+" : bosDown ? "BOS-" : "Structure WAIT"
+
+liquidityEvent =
+     bullSweep ? "Bull Sweep" :
+     bearSweep ? "Bear Sweep" :
+     equalHigh ? "Equal High Liquidity" :
+     equalLow ? "Equal Low Liquidity" :
+     "none"
+
+compactStatus = f_status_compact(buySignal, sellSignal, riskSignal, state)
+directionState = f_direction_state()
+vwapState = f_vwap_state()
+stState = f_st_state()
+orbState = f_orb_state()
+
+longEntryLow = close - atr * 0.12
+longEntryHigh = close + atr * 0.18
+shortEntryLow = close - atr * 0.18
+shortEntryHigh = close + atr * 0.12
+longStop = math.min(smartTrail, close - atr * 0.9)
+shortStop = math.max(smartTrail, close + atr * 0.9)
+longTp1 = close + atr * 1.0
+longTp2 = close + atr * 1.8
+shortTp1 = close - atr * 1.0
+shortTp2 = close - atr * 1.8
+
+entryText = buySignal or trendDir == 1 ? "buy watch " + f_txt(longEntryLow) + "-" + f_txt(longEntryHigh) : sellSignal or trendDir == -1 ? "sell watch " + f_txt(shortEntryLow) + "-" + f_txt(shortEntryHigh) : "wait for range/VWAP retest"
+stopText = buySignal or trendDir == 1 ? f_txt(longStop) : sellSignal or trendDir == -1 ? f_txt(shortStop) : "opposite structure"
+targetText = buySignal or trendDir == 1 ? "T1 " + f_txt(longTp1) + " T2 " + f_txt(longTp2) : sellSignal or trendDir == -1 ? "T1 " + f_txt(shortTp1) + " T2 " + f_txt(shortTp2) : "not active"
+
+displayText =
+     "SPUTNIK\\n\\n" +
+     str.upper(directionState) + " " + syminfo.ticker + " | " + timeframeLabel + "\\n" +
+     "Price " + f_txt(close) + "\\n\\n" +
+     structureEvent + "\\n" +
+     vwapState + "\\n" +
+     stState + "\\n" +
+     orbState + "\\n\\n" +
+     "MA " + maScoreText + " | Signal " + miniSignalText + " | Risk " + miniRiskText + "\\n" +
+     patternName + "\\n" +
+     "Liquidity " + liquidityEvent + "\\n\\n" +
+     compactStatus
+
+dynamicMessage =
+     "{" +
+     "\"schema_version\":1," +
+     "\"kind\":\"alert\"," +
+     "\"secret\":\"" + payloadSecret + "\"," +
+     "\"source\":\"SPUTNIK SMC + YASX ORB VWAP + Evasive ST\"," +
+     "\"symbol\":\"" + syminfo.prefix + ":" + syminfo.ticker + "\"," +
+     "\"exchange\":\"" + syminfo.prefix + "\"," +
+     "\"timeframe\":\"" + timeframe.period + "\"," +
+     "\"timestamp\":" + str.tostring(time_close) + "," +
+     "\"confirmed\":true," +
+     "\"timeframe_label\":\"" + timeframeLabel + "\"," +
+     "\"bar_time\":\"" + str.tostring(time_close) + "\"," +
+     "\"price\":\"" + f_txt(close) + "\"," +
+     "\"open\":\"" + f_txt(open) + "\"," +
+     "\"high\":\"" + f_txt(high) + "\"," +
+     "\"low\":\"" + f_txt(low) + "\"," +
+     "\"close\":\"" + f_txt(close) + "\"," +
+     "\"volume\":\"" + str.tostring(volume, "#.##") + "\"," +
+     "\"direction\":\"" + directionState + "\"," +
+     "\"signal_bias\":\"" + miniSignalText + "\"," +
+     "\"risk_bias\":\"" + miniRiskText + "\"," +
+     "\"ma_score\":\"" + maScoreText + "\"," +
+     "\"ma_bull_count\":\"" + str.tostring(maBullCount) + "\"," +
+     "\"ma_bear_count\":\"" + str.tostring(maBearCount) + "\"," +
+     "\"status\":\"" + compactStatus + "\"," +
+     "\"structure\":\"" + structureEvent + "\"," +
+     "\"vwap_state\":\"" + vwapState + "\"," +
+     "\"vwap_value\":\"" + f_txt(vwapValue) + "\"," +
+     "\"supertrend\":\"" + stState + "\"," +
+     "\"evasive_supertrend_band\":\"" + f_txt(eStBand) + "\"," +
+     "\"evasive_supertrend_noise\":\"" + f_gate(eStIsNoisy) + "\"," +
+     "\"smart_trail\":\"" + f_txt(smartTrail) + "\"," +
+     "\"orb_state\":\"" + orbState + "\"," +
+     "\"or_high\":\"" + f_txt(orHigh) + "\"," +
+     "\"or_low\":\"" + f_txt(orLow) + "\"," +
+     "\"or_mid\":\"" + f_txt(orMid) + "\"," +
+     "\"session\":\"" + tradeSession + "\"," +
+     "\"orb_session\":\"" + orbSession + "\"," +
+     "\"pattern\":\"" + patternName + "\"," +
+     "\"liquidity\":\"" + liquidityEvent + "\"," +
+     "\"trend\":\"" + f_bias_name(trendDir) + "\"," +
+     "\"long_score\":\"" + str.tostring(longScore) + "/" + str.tostring(strictNeed) + "\"," +
+     "\"short_score\":\"" + str.tostring(shortScore) + "/" + str.tostring(strictNeed) + "\"," +
+     "\"entry\":\"" + entryText + "\"," +
+     "\"stop\":\"" + stopText + "\"," +
+     "\"target\":\"" + targetText + "\"," +
+     "\"display\":\"" + displayText + "\"," +
+     "\"why_this_fired\":\"" + displayText + "\"," +
+     "\"next_check\":\"Confirm the completed candle, range, VWAP and retest before deciding.\"" +
+     "}"
+
+smcSignalPulse = alertOnSmcSignals and (buySignal or sellSignal or riskSignal)
+structurePulse = alertOnStructureEvents and (bosUp or bosDown or chochUp or chochDown)
+liquidityPulse = alertOnLiquidityEvents and (bullSweep or bearSweep or equalHigh or equalLow)
+vwapPulse = alertOnVWAPEvents and (vwapReclaim or vwapLost)
+trailPulse = alertOnTrailEvents and (trailFlipUp or trailFlipDown)
+evasiveStPulse = alertOnEvasiveSTEvents and (eStBullFlip or eStBearFlip)
+orbPulse = alertOnOrbEvents and (orbBreakAbove or orbBreakBelow)
+patternPulse = alertOnPatternEvents and (squeezeRelease or (patternCode > 0 and patternCode != nz(patternCode[1])))
+
+alertPulse = confirmed and (smcSignalPulse or structurePulse or liquidityPulse or vwapPulse or trailPulse or evasiveStPulse or orbPulse or patternPulse)
+
+if sendDynamicAlerts and alertPulse
+    alert(dynamicMessage, alert.freq_once_per_bar_close)
+
+// Keep one alertcondition so the merged Madrid ribbon stays under Pine's plot budget.
+// Use "Any alert() function call" for the detailed JSON payload above.
+alertcondition(alertPulse, "SPUTNIK MASTER ALERT", "SPUTNIK MASTER ALERT on {{ticker}} {{interval}}")

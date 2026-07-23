@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "kind": "alert",
+  "secret": "REPLACE_WITH_SPUTNIK_TV_SHARED_SECRET",
+  "symbol": "{{exchange}}:{{ticker}}",
+  "timeframe": "1",
+  "timestamp": "{{time}}",
+  "price": "{{close}}",
+  "event": "SPUTNIK_BUY_ZONE_ATTENTION",
+  "message": "Completed-bar attention event; chart confirmation still required.",
+  "confirmed": true
+}

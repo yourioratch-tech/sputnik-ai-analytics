@@ -1,0 +1,16 @@
+{
+  "symbols": ["ASX:OOO", "ASX:WDS", "ASX:EVN"],
+  "timeframe": "1D",
+  "factor_symbols": {
+    "oil": "TVC:USOIL",
+    "dxy": "TVC:DXY",
+    "gold": "TVC:GOLD"
+  },
+  "rules": [
+    {"field": "oil_return", "operator": "ge", "value": 0.03},
+    {"field": "dxy_return", "operator": "gt", "value": 0.0},
+    {"field": "gold_return", "operator": "lt", "value": 0.0}
+  ],
+  "cost_bps": 10,
+  "minimum_samples": 20
+}

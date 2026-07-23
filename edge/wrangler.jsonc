@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "sputnik-market-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-23",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "MAX_DATA_AGE_SECONDS": "900",
+    "NEWS_ALLOWED_DOMAINS": ""
+  },
+  "secrets": {
+    "required": [
+      "TV_WEBHOOK_ID",
+      "TV_SHARED_SECRET",
+      "NEWS_WEBHOOK_ID",
+      "NEWS_SHARED_SECRET",
+      "API_KEY",
+      "WORK_KEY"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sputnik-market-edge",
+      "database_id": "5caad51b-ee75-43b4-86bb-cfe6e4d66b33",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  }
+}

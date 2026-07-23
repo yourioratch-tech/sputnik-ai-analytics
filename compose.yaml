@@ -1,0 +1,44 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - sputnik-data:/data
+      - ./reports:/app/reports
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["sputnik", "worker", "--poll-seconds", "5"]
+    env_file: .env
+    volumes:
+      - sputnik-data:/data
+      - ./reports:/app/reports
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      api:
+        condition: service_healthy
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  sputnik-data:

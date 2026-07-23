@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "secret": "replace-with-news-payload-secret",
+  "source": "Example primary source",
+  "title": "Example timestamped market headline",
+  "url": "https://example.com/market-update",
+  "published_at": "2026-07-23T08:00:00Z",
+  "symbols": ["ASX:OOO", "TVC:USOIL"],
+  "summary": "Short source-attributed synopsis; no directional conclusion.",
+  "category": "energy"
+}

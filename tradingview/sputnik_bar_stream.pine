@@ -1,0 +1,28 @@
+//@version=6
+indicator("SPUTNIK Completed-Bar Stream", overlay = false)
+
+// This is a telemetry instrument, not a strategy or trade signal.
+payloadSecret = input.string("REPLACE_ME", "Sputnik payload secret", display = display.none)
+enabled = input.bool(true, "Send completed bars")
+
+jsonNumber(float value) =>
+    str.tostring(value, format.mintick)
+
+if enabled and barstate.isconfirmed
+    message = "{" +
+      "\"schema_version\":1," +
+      "\"kind\":\"bar\"," +
+      "\"secret\":\"" + payloadSecret + "\"," +
+      "\"symbol\":\"" + syminfo.prefix + ":" + syminfo.ticker + "\"," +
+      "\"timeframe\":\"" + timeframe.period + "\"," +
+      "\"timestamp\":" + str.tostring(time) + "," +
+      "\"open\":" + jsonNumber(open) + "," +
+      "\"high\":" + jsonNumber(high) + "," +
+      "\"low\":" + jsonNumber(low) + "," +
+      "\"close\":" + jsonNumber(close) + "," +
+      "\"volume\":" + str.tostring(volume) + "," +
+      "\"confirmed\":true" +
+      "}"
+    alert(message, alert.freq_once_per_bar_close)
+
+plot(close, "Stream heartbeat", color = color.new(color.aqua, 0))

@@ -1,0 +1,30 @@
+strategy:
+  ema_fast: 20
+  ema_slow: 50
+  atr_period: 14
+  breakout_period: 20
+  volume_period: 20
+  momentum_period: 5
+  entry_score: 6.0
+  exit_score: 3.0
+  oil_momentum_min: 0.005
+  dxy_momentum_max: 0.003
+  yield_change_max: 0.15
+  volume_ratio_min: 1.20
+
+risk:
+  initial_capital: 50000
+  risk_fraction: 0.010
+  max_allocation: 0.90
+  stop_atr: 2.0
+  target_atr: 3.5
+  trailing_atr: 2.0
+  max_hold_bars: 3
+
+costs:
+  commission_flat: 29.95
+  slippage_bps: 5.0
+
+analytics:
+  annualization: 252
+  risk_free_rate: 0.035

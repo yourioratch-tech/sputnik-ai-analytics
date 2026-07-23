@@ -1,0 +1,17 @@
+{
+  "name": "sputnik-market-edge",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dry-run": "wrangler deploy --dry-run --outdir /tmp/sputnik-edge-dist"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260723.1",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.30.0"
+  }
+}

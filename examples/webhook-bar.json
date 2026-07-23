@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "bar",
+  "secret": "replace-with-at-least-16-characters",
+  "symbol": "ASX:OOO",
+  "timeframe": "1D",
+  "timestamp": "2026-07-23T06:00:00Z",
+  "open": 8.42,
+  "high": 8.55,
+  "low": 8.38,
+  "close": 8.48,
+  "volume": 206000,
+  "confirmed": true
+}
