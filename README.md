@@ -55,7 +55,8 @@ flowchart LR
 - Docker Compose API + worker deployment and an optional Cloudflare Tunnel.
 - Deployed Cloudflare Worker and D1 evidence edge with a retrying private-origin sync outbox.
 - Pine Script completed-bar streamer and a restricted ChatGPT OpenAPI schema.
-- CI, CodeQL, Dependabot, container publishing, tests, and security guidance.
+- CI, free source/dependency security checks, Dependabot, container publishing,
+  tests, and security guidance.
 
 ## Repository map
 
