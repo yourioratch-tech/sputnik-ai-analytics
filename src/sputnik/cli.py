@@ -92,12 +92,11 @@ def _import_portfolio(args: argparse.Namespace) -> None:
 
 def _collect_news(args: argparse.Namespace) -> None:
     runtime = Settings.from_env()
-    if not runtime.news_shared_secret:
-        raise SystemExit("SPUTNIK_NEWS_SHARED_SECRET is required")
     config = load_news_config(args.config)
     store = MarketStore(runtime.database_path)
+    validation_secret = runtime.news_shared_secret or "internal-news-collector"
     while True:
-        result = collect_news(config, store, runtime.news_shared_secret)
+        result = collect_news(config, store, validation_secret)
         print(json.dumps(result, sort_keys=True))
         if not args.watch:
             return
