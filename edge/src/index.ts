@@ -6,6 +6,7 @@ export interface Env {
   NEWS_SHARED_SECRET: string;
   API_KEY: string;
   WORK_KEY: string;
+  AGENT_RELAY_KEY: string;
   ORIGIN_URL?: string;
   ORIGIN_API_KEY?: string;
   ORIGIN_ADMIN_KEY?: string;
@@ -119,6 +120,70 @@ function authorized(request: Request, env: Env): boolean {
 
 function workAuthorized(request: Request, env: Env): boolean {
   return secureEqual(bearer(request), env.WORK_KEY);
+}
+
+function relayAuthorized(request: Request, env: Env): boolean {
+  return secureEqual(bearer(request), env.AGENT_RELAY_KEY);
+}
+
+async function enqueueAgent(request: Request, env: Env): Promise<Response> {
+  try {
+    const raw = await body(request);
+    const task = String(raw.task ?? "").trim();
+    const context = raw.context == null ? null : String(raw.context).trim();
+    const role = String(raw.role ?? "research");
+    const model = String(raw.model ?? "granite-4-micro");
+    const outputFormat = String(raw.output_format ?? "markdown");
+    if (task.length < 3 || task.length > 4000 || (context?.length ?? 0) > 16000)
+      return response({ error: "invalid task or context length" }, 422);
+    if (!["research", "market", "webhook", "news", "maintenance"].includes(role))
+      return response({ error: "invalid role" }, 422);
+    if (!["markdown", "json"].includes(outputFormat) || !/^[a-zA-Z0-9._/-]{1,120}$/.test(model))
+      return response({ error: "invalid output format or model" }, 422);
+    const id = crypto.randomUUID(); const requestedAt = new Date().toISOString();
+    await env.DB.prepare(`INSERT INTO agent_jobs
+      (id,role,model,output_format,task,context,status,requested_at)
+      VALUES (?,?,?,?,?,?,'pending',?)`)
+      .bind(id,role,model,outputFormat,task,context,requestedAt).run();
+    return response({ id, kind: "granite_agent", status: "pending", requested_at: requestedAt }, 202);
+  } catch (error) {
+    return response({ error: error instanceof Error ? error.message : "invalid request" }, 422);
+  }
+}
+
+async function getAgentJob(id: string, env: Env): Promise<Response> {
+  const row = await env.DB.prepare(`SELECT id,role,model,output_format,status,requested_at,
+    started_at,completed_at,result_json,error FROM agent_jobs WHERE id=?`).bind(id).first();
+  if (!row) return response({ error: "agent job not found" }, 404);
+  return response({ ...row, result: row.result_json ? JSON.parse(String(row.result_json)) : undefined,
+    result_json: undefined });
+}
+
+async function claimAgent(request: Request, env: Env): Promise<Response> {
+  if (!relayAuthorized(request, env)) return response({ error: "valid relay key required" }, 401);
+  const raw = await body(request); const workerId = String(raw.worker_id ?? "").slice(0, 120);
+  if (!workerId) return response({ error: "worker_id required" }, 422);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const row = await env.DB.prepare(`SELECT * FROM agent_jobs WHERE status='pending'
+      ORDER BY requested_at LIMIT 1`).first();
+    if (!row) return response({ job: null });
+    const startedAt = new Date().toISOString();
+    const changed = await env.DB.prepare(`UPDATE agent_jobs SET status='running',started_at=?,worker_id=?
+      WHERE id=? AND status='pending'`).bind(startedAt,workerId,row.id).run();
+    if ((changed.meta.changes ?? 0) === 1) return response({ job: { ...row, status: "running", started_at: startedAt, worker_id: workerId } });
+  }
+  return response({ job: null });
+}
+
+async function completeAgent(request: Request, env: Env, id: string): Promise<Response> {
+  if (!relayAuthorized(request, env)) return response({ error: "valid relay key required" }, 401);
+  const raw = await body(request); const status = String(raw.status ?? "");
+  if (!["completed", "failed"].includes(status)) return response({ error: "invalid status" }, 422);
+  const completedAt = new Date().toISOString();
+  await env.DB.prepare(`UPDATE agent_jobs SET status=?,completed_at=?,result_json=?,error=?
+    WHERE id=? AND status='running'`).bind(status,completedAt,
+      raw.result == null ? null : JSON.stringify(raw.result), raw.error == null ? null : String(raw.error).slice(0,2000),id).run();
+  return response({ id, status, completed_at: completedAt });
 }
 
 async function ingestMarket(request: Request, env: Env, pathId: string): Promise<Response> {
@@ -490,6 +555,9 @@ export default {
       ctx.waitUntil(syncOriginOutbox(env));
       return result;
     }
+    if (request.method === "POST" && url.pathname === "/v1/internal/agents/claim") return claimAgent(request, env);
+    const completeJob = url.pathname.match(/^\/v1\/internal\/agents\/([^/]+)\/complete$/);
+    if (request.method === "POST" && completeJob?.[1]) return completeAgent(request, env, completeJob[1]);
     if (!authorized(request, env)) return response({ error: "valid bearer token required" }, 401);
     if (request.method === "GET" && url.pathname === "/v1/prices/latest") return latestPrices(url, env);
     if (request.method === "GET" && url.pathname === "/v1/prices/history") return priceHistory(url, env);
@@ -505,6 +573,12 @@ export default {
       if (!workAuthorized(request, env)) return response({ error: "valid work key required" }, 401);
       return createAmendment(request, env);
     }
+    if (request.method === "POST" && url.pathname === "/v1/work/agents") {
+      if (!workAuthorized(request, env)) return response({ error: "valid work key required" }, 401);
+      return enqueueAgent(request, env);
+    }
+    const agentJob = url.pathname.match(/^\/v1\/research\/jobs\/([^/]+)$/);
+    if (request.method === "GET" && agentJob?.[1]) return getAgentJob(agentJob[1], env);
     const context = url.pathname.match(/^\/v1\/context\/(.+)$/);
     if (request.method === "GET" && context?.[1]) return marketContext(context[1], env);
     if (/^\/v1\/(work|research\/jobs|portfolio)\//.test(url.pathname)) return proxyOrigin(request, env);

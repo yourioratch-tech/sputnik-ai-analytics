@@ -13,6 +13,7 @@ from .data import make_demo_market, merge_point_in_time, read_macro, read_prices
 from .jobs import run_worker
 from .news_collector import collect_news, load_news_config
 from .portfolio import parse_westpac_summary, parse_westpac_transactions
+from .relay import run_relay
 from .report import write_report
 from .settings import Settings
 from .storage import MarketStore
@@ -103,6 +104,14 @@ def _collect_news(args: argparse.Namespace) -> None:
         time.sleep(args.poll_seconds)
 
 
+def _relay_worker(args: argparse.Namespace) -> None:
+    import os
+    key = os.getenv("SPUTNIK_AGENT_RELAY_KEY")
+    if not key:
+        raise SystemExit("SPUTNIK_AGENT_RELAY_KEY is required")
+    run_relay(Settings.from_env(), args.base_url, key, args.poll_seconds, args.concurrency)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sputnik", description="СПУТНИК macro intelligence and OOO research"
@@ -149,6 +158,12 @@ def build_parser() -> argparse.ArgumentParser:
     news.add_argument("--watch", action="store_true")
     news.add_argument("--poll-seconds", type=int, default=900)
     news.set_defaults(handler=_collect_news)
+
+    relay = subparsers.add_parser("relay-worker", help="claim ChatGPT Granite jobs from Cloudflare")
+    relay.add_argument("--base-url", default="https://sputnik-market-edge.youri-oratch.workers.dev")
+    relay.add_argument("--poll-seconds", type=float, default=3)
+    relay.add_argument("--concurrency", type=int, choices=range(1, 5), default=4)
+    relay.set_defaults(handler=_relay_worker)
 
     portfolio = subparsers.add_parser(
         "import-portfolio", help="privately import a Westpac EOFY transaction export"
