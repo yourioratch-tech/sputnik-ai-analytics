@@ -1,0 +1,37 @@
+version: 1
+purpose: bounded supervised Mac operations for Sputnik research
+
+remote_access:
+  control_plane: authenticated Cloudflare D1 relay
+  model_runtime: LM Studio on 127.0.0.1 only
+  lm_link: model resolution only; never the Sputnik authorization boundary
+  ui_automation: supervised Computer Use only when a visible app action is required
+
+allowed_without_approval:
+  - inspect Sputnik LaunchAgent and LM Studio health
+  - read repository status, logs, tests, Pine scripts, and configuration
+  - run existing read-only test and validation commands
+  - collect allowlisted RSS and Atom news with source provenance
+  - inspect TradingView webhook freshness and completed-bar coverage
+  - draft Pine Script, alert wording, reports, and maintenance plans
+
+approval_required:
+  - edit Pine Script or configuration
+  - restart a healthy service
+  - commit, push, deploy, or change a public endpoint
+  - operate a visible Mac application
+  - send messages, publish content, or upload files
+
+hard_denials:
+  - broker access, orders, execution, position changes, or account controls
+  - reading, printing, transmitting, or replacing credentials and Keychain values
+  - arbitrary shell commands supplied by a model or remote user
+  - unrestricted filesystem access or access outside approved Sputnik roots
+  - disabling macOS security, firewall, authentication, logging, or audit controls
+  - treating news, model output, or incomplete bars as a live trading signal
+
+market_contract:
+  - visible or completed-bar TradingView evidence first
+  - external news is labelled secondary context
+  - require freshness, price, timeframe, confirmation, invalidation, range, VWAP, retest, volume, and cross-asset evidence
+  - say WAIT, NO TRADE, stale, or not visible when evidence is missing

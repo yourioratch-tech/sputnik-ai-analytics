@@ -23,6 +23,7 @@ def build_agent_context(config_dir: Path) -> str:
     overlay = root / "tradingview" / "sputnik_smc_yasx_orb_vwap_st_combined.pine"
     alerts = config_dir / "tradingview-alerts.yml"
     strategy = config_dir / "ooo_daily.yml"
+    mac_policy = config_dir / "mac-agent-policy.yml"
     sections = [
         "SPUTNIK SOURCE CONTRACT\n"
         "TradingView completed-bar webhooks are observations, not exchange truth. "
@@ -31,6 +32,7 @@ def build_agent_context(config_dir: Path) -> str:
         "Never place orders or treat model/news output as a signal.",
         "ALERT UNIVERSE\n" + alerts.read_text(encoding="utf-8") if alerts.is_file() else "",
         "BACKTEST STRATEGY\n" + strategy.read_text(encoding="utf-8") if strategy.is_file() else "",
+        "MAC AGENT POLICY\n" + mac_policy.read_text(encoding="utf-8") if mac_policy.is_file() else "",
         "COMPLETED-BAR PINE\n" + stream.read_text(encoding="utf-8") if stream.is_file() else "",
         "ALERT/SIGNAL PINE EXCERPT\n"
         + _matching_lines(
