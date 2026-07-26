@@ -34,6 +34,12 @@ def build_agent_context(config_dir: Path) -> str:
         "BACKTEST STRATEGY\n" + strategy.read_text(encoding="utf-8") if strategy.is_file() else "",
         "MAC AGENT POLICY\n" + mac_policy.read_text(encoding="utf-8") if mac_policy.is_file() else "",
         "COMPLETED-BAR PINE\n" + stream.read_text(encoding="utf-8") if stream.is_file() else "",
+        "SIGNAL SCORE PINE EXCERPT\n"
+        + _matching_lines(
+            overlay,
+            ("longscore", "shortscore", "longsignal", "shortsignal", "strictneed"),
+            70,
+        ),
         "ALERT/SIGNAL PINE EXCERPT\n"
         + _matching_lines(
             overlay,
@@ -49,7 +55,7 @@ def build_agent_context(config_dir: Path) -> str:
                 "stoptext",
                 "targettext",
             ),
-            100,
+            45,
         ),
     ]
     return "\n\n".join(section for section in sections if section)[:12_000]
