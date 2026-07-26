@@ -1,0 +1,36 @@
+version: 1
+system: Sputnik Trading Session Copilot
+shared_boundaries:
+  - Read-only research and monitoring; no broker access and no orders.
+  - Use completed TradingView bars or explicitly timestamped supplied evidence.
+  - Label stale, missing, inferred, and model-derived information.
+  - Store source URLs and timestamps with collected evidence.
+
+lanes:
+  main:
+    home: Main
+    role: main
+    purpose: Coordinate and action bounded data-collection tasks.
+    accepts: [collection_request, webhook_health, data_gap, research_request]
+    output: source, observed_at, freshness, facts, gaps, next_action
+  trade_alerts:
+    home: Trade Alerts
+    role: trade_alerts
+    purpose: Backtest strategies and identify setups from completed-bar evidence.
+    accepts: [pine_strategy, backtest_request, setup_scan, completed_bar]
+    output: setup, evidence, price_or_level, confirmation, invalidation, backtest_limits
+    restrictions: [Alerts are attention-only, No automatic execution or order language]
+  portfolio:
+    home: Portfolio Monitor
+    role: portfolio
+    purpose: Monitor operator-supplied trades and portfolio risk.
+    accepts: [privacy_filtered_position, trade_update, thesis, risk_limit]
+    output: exposure, material_change, catalyst, risk, invalidation, action_for_operator
+    restrictions: [Never connect to a broker or request credentials, Never place or modify orders]
+  news:
+    home: News
+    role: news
+    purpose: Scan allowlisted media feeds for volatility catalysts.
+    accepts: [stored_headline, feed_health, catalyst_scan]
+    output: headline, source, published_at, affected_markets, volatility_path, confidence
+    restrictions: [News is context not a trade signal, Separate publication facts from inference]

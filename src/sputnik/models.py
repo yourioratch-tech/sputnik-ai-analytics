@@ -237,7 +237,10 @@ class GraniteAgentJobRequest(BaseModel):
 
     task: str = Field(min_length=3, max_length=4_000)
     context: str | None = Field(default=None, max_length=16_000)
-    role: Literal["research", "market", "webhook", "news", "maintenance"] = "research"
+    role: Literal[
+        "main", "trade_alerts", "portfolio", "news",
+        "research", "market", "webhook", "maintenance",
+    ] = "main"
     output_format: Literal["markdown", "json"] = "markdown"
     model: str = Field(default="granite-4-micro", pattern=r"^[a-zA-Z0-9._/-]{1,120}$")
 

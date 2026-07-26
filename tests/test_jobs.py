@@ -51,3 +51,13 @@ def test_granite_agent_request_is_bounded():
     request = GraniteAgentJobRequest(task="Triage the stale webhook stream", role="webhook")
     assert request.model == "granite-4-micro"
     assert request.output_format == "markdown"
+
+
+def test_granite_agent_request_supports_four_chatgpt_homes():
+    roles = {"main", "trade_alerts", "portfolio", "news"}
+    requests = {
+        GraniteAgentJobRequest(task=f"Run bounded {role} work", role=role).role
+        for role in roles
+    }
+    assert requests == roles
+    assert GraniteAgentJobRequest(task="Collect current evidence").role == "main"

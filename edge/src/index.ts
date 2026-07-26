@@ -131,12 +131,12 @@ async function enqueueAgent(request: Request, env: Env): Promise<Response> {
     const raw = await body(request);
     const task = String(raw.task ?? "").trim();
     const context = raw.context == null ? null : String(raw.context).trim();
-    const role = String(raw.role ?? "research");
+    const role = String(raw.role ?? "main");
     const model = String(raw.model ?? "granite-4-micro");
     const outputFormat = String(raw.output_format ?? "markdown");
     if (task.length < 3 || task.length > 4000 || (context?.length ?? 0) > 16000)
       return response({ error: "invalid task or context length" }, 422);
-    if (!["research", "market", "webhook", "news", "maintenance"].includes(role))
+    if (!["main", "trade_alerts", "portfolio", "news", "research", "market", "webhook", "maintenance"].includes(role))
       return response({ error: "invalid role" }, 422);
     if (!["markdown", "json"].includes(outputFormat) || !/^[a-zA-Z0-9._/-]{1,120}$/.test(model))
       return response({ error: "invalid output format or model" }, 422);

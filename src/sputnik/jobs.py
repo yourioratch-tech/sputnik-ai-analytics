@@ -201,6 +201,21 @@ def _run_granite_agent_job(
         "strengthen, or reinterpret a configured rule. Quote exact rule names when possible."
     )
     role = {
+        "main": (
+            "Coordinate read-only data collection. Report source, timestamp, freshness, "
+            "gaps, contradictions, and the next bounded collection task."
+        ),
+        "trade_alerts": (
+            "Backtest supplied strategies and find candidate setups only from supplied or "
+            "stored completed-bar evidence. Every alert must state what changed, why it "
+            "matters, price or level, confirmation, and invalidation. Alerts are attention-only; "
+            "never place or recommend automatic orders."
+        ),
+        "portfolio": (
+            "Monitor only privacy-filtered positions and trades supplied by the operator. "
+            "Compare exposure, thesis, catalysts, risk, and invalidation; never access a broker, "
+            "credentials, or place or modify orders."
+        ),
         "research": "Synthesize evidence and identify contradictions and unknowns.",
         "market": "Connect markets, but do not invent current prices or trade signals.",
         "webhook": "Triage webhook evidence, freshness, schemas, and delivery failures.",
