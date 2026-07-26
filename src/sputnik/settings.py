@@ -22,6 +22,9 @@ class Settings:
     max_data_age_seconds: int = 900
     log_level: str = "INFO"
     scheduler_enabled: bool = True
+    lmstudio_base_url: str = "http://127.0.0.1:1234/v1"
+    granite_worker_count: int = 4
+    granite_timeout_seconds: int = 180
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -48,6 +51,15 @@ class Settings:
             log_level=os.getenv("SPUTNIK_LOG_LEVEL", "INFO"),
             scheduler_enabled=os.getenv("SPUTNIK_SCHEDULER_ENABLED", "true").lower()
             in {"1", "true", "yes", "on"},
+            lmstudio_base_url=os.getenv(
+                "SPUTNIK_LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1"
+            ).rstrip("/"),
+            granite_worker_count=max(
+                1, min(4, int(os.getenv("SPUTNIK_GRANITE_WORKERS", "4")))
+            ),
+            granite_timeout_seconds=max(
+                10, min(600, int(os.getenv("SPUTNIK_GRANITE_TIMEOUT_SECONDS", "180")))
+            ),
         )
 
     def missing_runtime_secrets(self) -> list[str]:

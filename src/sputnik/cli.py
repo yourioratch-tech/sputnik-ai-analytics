@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 import uvicorn
@@ -10,6 +11,7 @@ from .backtest import run_backtest
 from .config import load_config
 from .data import make_demo_market, merge_point_in_time, read_macro, read_prices
 from .jobs import run_worker
+from .news_collector import collect_news, load_news_config
 from .portfolio import parse_westpac_summary, parse_westpac_transactions
 from .report import write_report
 from .settings import Settings
@@ -65,7 +67,12 @@ def _serve(args: argparse.Namespace) -> None:
 
 
 def _worker(args: argparse.Namespace) -> None:
-    run_worker(Settings.from_env(), poll_seconds=args.poll_seconds, once=args.once)
+    run_worker(
+        Settings.from_env(),
+        poll_seconds=args.poll_seconds,
+        once=args.once,
+        concurrency=args.concurrency,
+    )
 
 
 def _import_portfolio(args: argparse.Namespace) -> None:
@@ -81,6 +88,20 @@ def _import_portfolio(args: argparse.Namespace) -> None:
         "privacy": "account identifiers and contract-note numbers were not stored",
     }
     print(json.dumps(safe_result, indent=2))
+
+
+def _collect_news(args: argparse.Namespace) -> None:
+    runtime = Settings.from_env()
+    if not runtime.news_shared_secret:
+        raise SystemExit("SPUTNIK_NEWS_SHARED_SECRET is required")
+    config = load_news_config(args.config)
+    store = MarketStore(runtime.database_path)
+    while True:
+        result = collect_news(config, store, runtime.news_shared_secret)
+        print(json.dumps(result, sort_keys=True))
+        if not args.watch:
+            return
+        time.sleep(args.poll_seconds)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -119,7 +140,16 @@ def build_parser() -> argparse.ArgumentParser:
     worker = subparsers.add_parser("worker", help="process durable research jobs")
     worker.add_argument("--poll-seconds", type=float, default=5.0)
     worker.add_argument("--once", action="store_true")
+    worker.add_argument("--concurrency", type=int, choices=range(1, 5), default=4)
     worker.set_defaults(handler=_worker)
+
+    news = subparsers.add_parser(
+        "collect-news", help="collect allowlisted RSS/Atom news with source provenance"
+    )
+    news.add_argument("--config", default="configs/news-feeds.yml")
+    news.add_argument("--watch", action="store_true")
+    news.add_argument("--poll-seconds", type=int, default=900)
+    news.set_defaults(handler=_collect_news)
 
     portfolio = subparsers.add_parser(
         "import-portfolio", help="privately import a Westpac EOFY transaction export"

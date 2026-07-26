@@ -3,12 +3,16 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from . import __version__
+from .agent_knowledge import build_agent_context
 from .asx_hunt import hunt_asx_candidates
 from .backtest import run_backtest
 from .config import load_config
@@ -19,6 +23,7 @@ from .models import (
     AsxHuntJobRequest,
     BacktestJobRequest,
     ForecastJobRequest,
+    GraniteAgentJobRequest,
     PortfolioReviewJobRequest,
     WeekendGapJobRequest,
 )
@@ -184,6 +189,76 @@ def _run_asx_hunt_job(
     return report, fingerprint
 
 
+def _run_granite_agent_job(
+    request_data: dict[str, Any], store: MarketStore, settings: Settings
+) -> tuple[dict[str, Any], str]:
+    request = GraniteAgentJobRequest.model_validate(request_data)
+    boundary = (
+        "You are a bounded Sputnik research agent. You may analyze, classify, draft, and "
+        "recommend next steps. You cannot place or modify orders, access brokers or secrets, "
+        "run shell commands, or claim unseen market data is current. Clearly label observed "
+        "facts, model-derived conclusions, assumptions, and missing evidence. Never rename, "
+        "strengthen, or reinterpret a configured rule. Quote exact rule names when possible."
+    )
+    role = {
+        "research": "Synthesize evidence and identify contradictions and unknowns.",
+        "market": "Connect markets, but do not invent current prices or trade signals.",
+        "webhook": "Triage webhook evidence, freshness, schemas, and delivery failures.",
+        "news": "Analyze only supplied stored headlines; distinguish publication facts from inference.",
+        "maintenance": "Draft safe, auditable maintenance steps without executing them.",
+    }[request.role]
+    user = request.task
+    user += f"\n\nVersion-controlled Sputnik knowledge:\n{build_agent_context(settings.config_dir)}"
+    if request.role == "news":
+        news = store.latest_news(limit=30)
+        user += "\n\nStored source-linked news (newest first):\n" + json.dumps(
+            news, sort_keys=True, default=str
+        )[:10_000]
+    if request.context:
+        user += f"\n\nProvided context:\n{request.context}"
+    if request.output_format == "json":
+        user += "\n\nReturn one valid JSON object and no surrounding prose."
+    payload = json.dumps(
+        {
+            "model": request.model,
+            "messages": [
+                {"role": "system", "content": f"{boundary}\n{role}"},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 2_000,
+        }
+    ).encode("utf-8")
+    http_request = urllib.request.Request(
+        f"{settings.lmstudio_base_url}/chat/completions",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(
+            http_request, timeout=settings.granite_timeout_seconds
+        ) as response:
+            body = json.load(response)
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"LM Studio request failed: {error.reason}") from error
+    try:
+        content = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as error:
+        raise RuntimeError("LM Studio returned an invalid chat-completion response") from error
+    fingerprint = hashlib.sha256(
+        json.dumps(request_data, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return {
+        "agent": request.role,
+        "model": request.model,
+        "output_format": request.output_format,
+        "content": content,
+        "provenance": "model-derived local LM Studio output",
+        "action_boundary": "analysis only; no broker, orders, shell, or secret access",
+    }, fingerprint
+
+
 def run_worker_once(store: MarketStore, settings: Settings) -> dict[str, Any] | None:
     job = store.claim_job()
     if not job:
@@ -201,6 +276,8 @@ def run_worker_once(store: MarketStore, settings: Settings) -> dict[str, Any] | 
             result, fingerprint = _run_portfolio_review_job(job["request"], store)
         elif job["kind"] == "asx_hunt":
             result, fingerprint = _run_asx_hunt_job(job["request"], store)
+        elif job["kind"] == "granite_agent":
+            result, fingerprint = _run_granite_agent_job(job["request"], store, settings)
         else:
             raise ValueError(f"unsupported job kind: {job['kind']}")
         store.complete_job(job["id"], result, fingerprint, __version__)
@@ -209,15 +286,26 @@ def run_worker_once(store: MarketStore, settings: Settings) -> dict[str, Any] | 
     return store.get_job(job["id"])
 
 
-def run_worker(settings: Settings, poll_seconds: float = 5.0, once: bool = False) -> None:
+def run_worker(
+    settings: Settings,
+    poll_seconds: float = 5.0,
+    once: bool = False,
+    concurrency: int | None = None,
+) -> None:
     store = MarketStore(settings.database_path)
+    worker_count = concurrency or settings.granite_worker_count
+
+    def process_one() -> dict[str, Any] | None:
+        return run_worker_once(MarketStore(settings.database_path), settings)
+
     while True:
         if settings.scheduler_enabled:
             schedule_due_jobs(store)
-        result = run_worker_once(store, settings)
-        if result:
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            results = list(pool.map(lambda _: process_one(), range(worker_count)))
+        for result in (item for item in results if item):
             print(json.dumps({"id": result["id"], "status": result["status"]}))
         if once:
             return
-        if not result:
+        if not any(results):
             time.sleep(poll_seconds)

@@ -14,7 +14,8 @@
 3. Keep the deployed Cloudflare Worker server URL, or replace it with your stable hostname.
 4. Choose API-key authentication, auth type `Bearer`.
 5. Enter `SPUTNIK_OPERATOR_KEY` only in the Action secret field.
-6. Test `getLatestPrices`, `getWebhookCoverage`, and `getSputnikConfiguration`.
+6. Test `getLatestPrices`, `getWebhookCoverage`, `getSputnikConfiguration`,
+   and `wakeGraniteAgent`.
 
 Do not paste the key into GPT instructions, a chat, source control, or the
 OpenAPI document.
@@ -34,6 +35,8 @@ exactly what is missing.
 
 The Action may enqueue bounded Python jobs, save versioned ASX-session settings,
 and append sourced price corrections. Raw observations are never overwritten.
-It cannot ingest webhook payloads, import private files, write GitHub, or operate
-a broker. This is how ChatGPT Work requests compute without Codex being part of
-the production path.
+It cannot ingest webhook payloads, import private files, write GitHub, run shell
+commands, or operate a broker. `wakeGraniteAgent` queues a bounded task for one
+of four local LM Studio worker slots. Poll the returned job ID with
+`getResearchJob`. This is how ChatGPT Work requests local compute without Codex
+being part of the production path.

@@ -17,6 +17,7 @@ from .models import (
     BacktestJobRequest,
     ControlConfiguration,
     ForecastJobRequest,
+    GraniteAgentJobRequest,
     NewsWebhookEvent,
     PortfolioReviewJobRequest,
     PriceAmendmentRequest,
@@ -587,6 +588,9 @@ class MarketStore:
 
     def enqueue_forecast(self, request: ForecastJobRequest) -> dict[str, Any]:
         return self._enqueue_job("forecast", request.model_dump(mode="json"))
+
+    def enqueue_granite_agent(self, request: GraniteAgentJobRequest) -> dict[str, Any]:
+        return self._enqueue_job("granite_agent", request.model_dump(mode="json"))
 
     def enqueue_portfolio_review(self, request: PortfolioReviewJobRequest) -> dict[str, Any]:
         return self._enqueue_job("portfolio_review", request.model_dump(mode="json"))

@@ -218,6 +218,36 @@ paths:
                 method: {type: string, enum: [empirical_distribution]}
       responses:
         "202": {description: Durable Python forecast job queued}
+  /v1/work/agents:
+    post:
+      operationId: wakeGraniteAgent
+      summary: Wake a bounded local Granite agent for Sputnik research work
+      description: >-
+        Queues analysis, drafting, webhook triage, or maintenance planning in
+        LM Studio. This tool cannot run shell commands, access secrets or
+        brokers, or place, modify, or cancel orders.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [task]
+              properties:
+                task: {type: string, minLength: 3, maxLength: 4000}
+                context: {type: string, maxLength: 16000}
+                role:
+                  type: string
+                  enum: [research, market, webhook, news, maintenance]
+                  default: research
+                output_format:
+                  type: string
+                  enum: [markdown, json]
+                  default: markdown
+                model: {type: string, default: granite-4-micro}
+      responses:
+        "202": {description: Durable local Granite task queued}
   /v1/work/backtests:
     post:
       operationId: startPythonBacktest

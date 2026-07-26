@@ -230,6 +230,18 @@ class ForecastJobRequest(BaseModel):
         return TradingViewEvent.validate_timeframe(value)
 
 
+class GraniteAgentJobRequest(BaseModel):
+    """Bounded reasoning work for a local LM Studio model; never an execution request."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    task: str = Field(min_length=3, max_length=4_000)
+    context: str | None = Field(default=None, max_length=16_000)
+    role: Literal["research", "market", "webhook", "news", "maintenance"] = "research"
+    output_format: Literal["markdown", "json"] = "markdown"
+    model: str = Field(default="granite-4-micro", pattern=r"^[a-zA-Z0-9._/-]{1,120}$")
+
+
 class PortfolioReviewJobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

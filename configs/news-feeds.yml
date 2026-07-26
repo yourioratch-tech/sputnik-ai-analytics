@@ -1,0 +1,19 @@
+feeds:
+  - name: Reserve Bank of Australia
+    url: https://www.rba.gov.au/rss/rss-cb-media-releases.xml
+    allowed_hosts: [www.rba.gov.au]
+    category: central_bank
+    symbols: [TVC:DXY]
+    limit: 30
+  - name: Google News macro and commodities
+    url: https://news.google.com/rss/search?q=oil%20OR%20gold%20OR%20copper%20OR%20Treasury%20yields%20OR%20US%20dollar&hl=en-AU&gl=AU&ceid=AU:en
+    allowed_hosts: [news.google.com]
+    category: macro_commodities
+    symbols: [NYMEX:CL1!, COMEX:GC1!, COMEX:SI1!, COMEX:HG1!, TVC:DXY]
+    limit: 50
+  - name: Google News AI infrastructure and energy
+    url: https://news.google.com/rss/search?q=AI%20data%20centres%20electricity%20grid%20uranium%20copper&hl=en-AU&gl=AU&ceid=AU:en
+    allowed_hosts: [news.google.com]
+    category: ai_infrastructure
+    symbols: []
+    limit: 50

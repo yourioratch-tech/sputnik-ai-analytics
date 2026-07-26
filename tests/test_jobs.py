@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from sputnik.jobs import run_worker_once
-from sputnik.models import TradingViewEvent, WeekendGapJobRequest
+from sputnik.models import GraniteAgentJobRequest, TradingViewEvent, WeekendGapJobRequest
 from sputnik.settings import Settings
 from sputnik.storage import MarketStore
 
@@ -45,3 +45,9 @@ def test_worker_completes_durable_weekend_gap_job(tmp_path: Path):
     assert completed["status"] == "completed"
     assert completed["dataset_sha256"]
     assert completed["result"]["symbols"]["ASX:OOO"]["baseline"]["samples"] > 5
+
+
+def test_granite_agent_request_is_bounded():
+    request = GraniteAgentJobRequest(task="Triage the stale webhook stream", role="webhook")
+    assert request.model == "granite-4-micro"
+    assert request.output_format == "markdown"

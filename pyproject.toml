@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Yuri Oratch" }]
 dependencies = [
+  "certifi>=2025.1.31",
   "fastapi>=0.115,<1",
   "numpy>=1.26",
   "pandas>=2.1",

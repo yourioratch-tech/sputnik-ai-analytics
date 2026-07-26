@@ -17,6 +17,7 @@ from .models import (
     BacktestJobRequest,
     ControlConfiguration,
     ForecastJobRequest,
+    GraniteAgentJobRequest,
     NewsWebhookEvent,
     PortfolioReviewJobRequest,
     PriceAmendmentRequest,
@@ -432,6 +433,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _: Annotated[None, Depends(require_reader)],
     ) -> dict[str, Any]:
         return store.enqueue_forecast(request_body)
+
+    @app.post(
+        "/v1/work/agents",
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["ChatGPT work"],
+    )
+    def wake_granite_agent(
+        request_body: Annotated[GraniteAgentJobRequest, Body()],
+        _: Annotated[None, Depends(require_operator)],
+    ) -> dict[str, Any]:
+        """Queue bounded local reasoning. This endpoint cannot run shell commands or place orders."""
+        return store.enqueue_granite_agent(request_body)
 
     @app.post(
         "/v1/work/backtests",
